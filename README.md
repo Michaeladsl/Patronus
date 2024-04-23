@@ -1,5 +1,5 @@
 # Patronus
-Patronus is designed for the world of penetration testing! This dynamic tool captures command line inputs during security assessments, meticulously redacts any sensitive information, and organizes the data by command type. All the organized commands are then displayed through a user-friendly, interactive web interface, making it easy to review and manage. With Patronus, penetration testers can cast away the shadows of data mishandling and ensure a secure and streamlined workflow.
+Patronus was designed with penetration testers in mind! This dynamic tool captures command line inputs during security assessments, meticulously redacts any sensitive information, and organizes the data by command type. All the organized commands are then displayed through a user-friendly, interactive web interface, making it easy to review and manage. With Patronus, penetration testers can cast away the shadows of data mishandling and ensure a secure and streamlined workflow.
 
 ### Usage
 
