@@ -18,7 +18,18 @@ def run_script(script_name, args):
     except subprocess.CalledProcessError as e:
         print(f"Error running {script_name}: {e}")
 
+def remove_gitkeep_files():
+    """Remove .gitkeep files from specified static subdirectories."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    directories = ['static/redacted_full', 'static/full', 'static/splits']
+    for dir_path in directories:
+        full_path = os.path.join(base_dir, dir_path, '.gitkeep')
+        if os.path.exists(full_path):
+            os.remove(full_path)
+
 def main():
+    remove_gitkeep_files()  # Silently clean up .gitkeep files before running scripts
+
     parser = argparse.ArgumentParser(description="Patronus: A central command script for running multiple utility scripts.")
     parser.add_argument('tools', nargs='?', default='redact,split,server',
                         help='Comma-separated list of tools to run (redact, split, server, config). Defaults to running redact.py, split.py, and server.py in that order.')
