@@ -38,7 +38,10 @@ def redact_sensitive_info(text, redaction_word=None):
         clean_text = re.sub(pattern, repl, clean_text)
     return reinsert_ansi_codes(clean_text, ansi_positions)
 
-def process_cast_file(input_file_path, output_file_path, redaction_word=None):
+def process_cast_file(input_file_path, output_file_path, redaction_word=None, force=False):
+    if os.path.exists(output_file_path) and not force:
+        print(f"Skipping already processed file: {output_file_path}")
+        return
     temp_file_path = input_file_path + '.tmp'
     try:
         with open(input_file_path, 'r') as file, open(temp_file_path, 'w') as temp_out:
@@ -69,7 +72,7 @@ def main():
         input_file_path = args.file
         output_file_path = input_file_path if args.word else os.path.join(redacted_dir, os.path.basename(input_file_path))
         os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-        process_cast_file(input_file_path, output_file_path, args.word)
+        process_cast_file(input_file_path, output_file_path, args.word, force=True)
     else:
         full_dir = os.path.join(script_dir, "static", "full")
         for root, dirs, files in os.walk(full_dir):
