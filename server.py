@@ -14,12 +14,12 @@ def get_cast_files():
 
 def get_disk_usage():
     _, _, free = shutil.disk_usage("/")
-    free_gb = free / (1024 ** 3)  # Convert to GB
+    free_gb = free / (1024 ** 3)  
 
     def get_directory_size(path):
         return sum(os.path.getsize(os.path.join(dirpath, filename))
                    for dirpath, dirnames, filenames in os.walk(path)
-                   for filename in filenames) / (1024 ** 3)  # Convert to GB
+                   for filename in filenames) / (1024 ** 3)  
 
     recordings_size = get_directory_size(os.path.join(app.root_path, 'static', 'splits')) + \
                       get_directory_size(os.path.join(app.root_path, 'static', 'redacted_full')) + \
@@ -46,6 +46,17 @@ def redact_text():
     file_to_redact = os.path.join(app.root_path, 'static', 'splits', data['file'])
     subprocess.run(['python3', 'redact.py', '-w', word, '-f', file_to_redact])
     return jsonify(success=True)
+
+@app.route('/delete', methods=['POST'])
+def delete_file():
+    data = request.json
+    file_path = os.path.join(app.root_path, 'static', 'splits', data['file'])
+    try:
+        os.remove(file_path)
+        return jsonify(success=True)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -97,7 +108,6 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-
 COMMAND_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -106,43 +116,73 @@ COMMAND_TEMPLATE = '''
     <title>Command Files - {{ command }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='asciinema-player.css') }}">
     <style>
-        body { background-color: #1a1a2e; color: white; }
+        body { background-color: #000000; color: white; }
+        .file-name {
+            background-color: #16213e;
+            border: 1px solid #4ecca3;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+            font-size: 18px;
+            margin: 10px auto;
+            cursor: pointer;
+            border-radius: 5px;
+            width: 95%;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+            transition: 0.3s;
+        }
+        
+        .file-name, .dropdown-content {
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+            width: 95%; /* Set the same width for both */
+            margin: 10px auto; /* Center both elements with auto margins */
+            background-color: #16213e;
+            color: white;
+            padding: 15px;
+            border: 1px solid #4ecca3;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+            transition: 0.3s;
+        }
+
         .file-name {
             cursor: pointer;
-            padding: 10px;
-            border-top: 1px solid #4ecca3;
-            color: white;
-            background-color: #16213e;
             display: block;
-            width: 95%;
+            font-size: 18px;
         }
-        .file-name:hover {
-            background-color: #0f3460;
-        }
+
         .dropdown-content {
-            padding: 10px;
-            border-top: 1px solid #4ecca3;
-            display: none;
-            background-color: #16213e;
-            width: 95%;
+            display: none; /* Initially hidden */
         }
-        .redact-controls {
-            padding: 10px;
-            display: block; /* Show the controls by default */
+
+        .file-name:hover {
+            box-shadow: 0 8px 16px 0 rgba(0,0,0,0.3);
         }
-        input[type="text"] {
+        .redact-controls, .delete-controls {
+            padding: 10px;
+            display: block;
+        }
+        input[type="text"], button {
             padding: 5px;
             margin-right: 10px;
-            width: 200px;
         }
         button {
-            padding: 5px 10px;
             background-color: #4ecca3;
             border: none;
             cursor: pointer;
         }
         button:hover {
             background-color: #3ba888;
+        }
+        .delete-button {
+            background-color: #E94560; /* Red color */
+            padding: 10px 15px;
+            margin-top: 5px;
+        }
+        .delete-button:hover {
+            background-color: #D8315B; /* Slightly darker red on hover */
         }
     </style>
 </head>
@@ -153,6 +193,9 @@ COMMAND_TEMPLATE = '''
         <div class="redact-controls">
             <input type="text" id="redact-word-{{ file }}" placeholder="Word to redact">
             <button onclick="redactAndReload('{{ file }}')">Redact and Reload</button>
+        </div>
+        <div class="delete-controls">
+            <button class="delete-button" onclick="deleteFile('{{ file }}')">Delete File</button>
         </div>
     </div>
     {% endfor %}
@@ -172,7 +215,9 @@ COMMAND_TEMPLATE = '''
             }
         }
         function redactAndReload(filename) {
-            var word = document.getElementById('redact-word-' + filename).value;
+            var wordInput = document.getElementById('redact-word-' + filename);
+            var word = wordInput.value;
+            var redactButton = document.getElementById('redact-button-' + filename); // Assuming you have an ID for the button
             fetch('/redact', {
                 method: 'POST',
                 headers: {
@@ -182,20 +227,47 @@ COMMAND_TEMPLATE = '''
             }).then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Appending a cache-buster query string
+                    
                     var timestamp = new Date().getTime();
                     var playerContainer = document.getElementById('demo-' + filename);
                     playerContainer.innerHTML = ''; // Clear existing content
 
-                    // Wait for a small delay to ensure the file has been updated
+                    
+                    wordInput.value = '';
+                    if (redactButton) redactButton.disabled = true;
+
+                    
                     setTimeout(() => {
                         playerContainer.style.display = 'block';
                         AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, playerContainer);
+                        if (redactButton) redactButton.disabled = false;
                     }, 1000); // Adjust the delay as needed
                 }
             }).catch(error => {
                 console.error('Error:', error);
             });
+        }
+        function deleteFile(filename) {
+            if (confirm('Are you sure you want to delete this file?')) {
+                fetch('/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({file: filename})
+                }).then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Reload the page to reflect changes
+                        window.location.reload();
+                    } else {
+                        alert('Failed to delete the file.');
+                    }
+                }).catch(error => {
+                    console.error('Error:', error);
+                    alert('Error deleting the file.');
+                });
+            }
         }
     </script>
 </body>
