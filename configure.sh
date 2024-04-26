@@ -21,8 +21,6 @@ if ! command -v asciinema &> /dev/null
 then
     echo "Asciinema is not installed. Installing now..."
     sudo apt update && sudo apt install asciinema -y
-else
-    echo "Asciinema is already installed."
 fi
 
 CURRENT_DIR=$(pwd)
