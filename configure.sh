@@ -1,5 +1,22 @@
 #!/bin/bash
 
+undo=false
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --undo) undo=true ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+if [[ "$undo" = true ]]; then
+    echo "Undoing changes made by the script..."
+    sed -i '/# Setup asciinema recording/,/#fi/d' "$HOME/.zshrc"
+    echo "Changes undone. Please restart your shell."
+    exit 0
+fi
+
 if ! command -v asciinema &> /dev/null
 then
     echo "Asciinema is not installed. Installing now..."
