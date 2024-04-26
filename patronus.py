@@ -1,7 +1,6 @@
 import argparse
 import subprocess
 import os
-import shutil
 
 def run_script(script_name, args):
     """Run the specified script with additional arguments."""
@@ -27,6 +26,7 @@ def remove_gitkeep_files():
         full_path = os.path.join(base_dir, dir_path, '.gitkeep')
         if os.path.exists(full_path):
             os.remove(full_path)
+            
 
 def nuke_directories():
     """Erase all contents of specified directories."""
@@ -44,33 +44,26 @@ def nuke_directories():
 
 def main():
     parser = argparse.ArgumentParser(description="Patronus: A central command script for running multiple utility scripts.")
-    parser.add_argument('tools', nargs='?', default='redact,split,server',
-                        help='Comma-separated list of tools to run (redact, split, server, config). Defaults to running redact.py, split.py, and server.py in that order.')
+    parser.add_argument('mode', nargs='?', choices=['on', 'off'],
+                        help='Mode for running configuration.sh. Use "on" to run configuration.sh or "off" to run configuration.sh --undo.')
     parser.add_argument('--nuke', action='store_true', help='Erase all contents from the static directories')
-    parser.add_argument('args', nargs=argparse.REMAINDER, help='Additional arguments to pass to the scripts')
 
     args = parser.parse_args()
 
+    if args.mode:
+        run_script('configure.sh', ['--undo'] if args.mode == 'off' else [])
+        return
+
     if args.nuke:
         nuke_directories()
-        return 
+        return
 
     remove_gitkeep_files()
-    tools_to_run = args.tools.split(',')
-    script_map = {
-        'redact': 'redact.py',
-        'split': 'split.py',
-        'server': 'server.py',
-        'config': 'configure.sh'
-    }
 
-    for tool in tools_to_run:
-        script = script_map.get(tool.strip())
-        if script:
-            print(f"Running {script} with arguments {args.args}")
-            run_script(script, args.args)
-        else:
-            print(f"Warning: No script found for tool '{tool}'")
+    # Run preset scripts
+    scripts_to_run = ['redact.py', 'split.py', 'server.py']
+    for script in scripts_to_run:
+        run_script(script, [])
 
 if __name__ == "__main__":
     main()
