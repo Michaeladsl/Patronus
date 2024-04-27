@@ -66,13 +66,14 @@ def write_segment(filename, content):
         new_file.write('\n'.join(content))
     print(f"Created file: {filename}")
 
-def extract_command(display):
-    lines = display.split('\n')
-    for line in lines[::-1]:
+def extract_command(lines):
+    last_command = "initial"
+    for line in reversed(lines):
         if '└─$' in line:
             command = line.split('└─$')[-1].strip()
-            return command.replace(' ', '_')
-    return "initial"
+            if command and command[0] != ' ':
+                last_command = command.replace(' ', '_')
+    return last_command
 
 def clean_filename(command_name):
     command_name = re.sub(r'(-u_\S+|-p_\S+|-H_\S+)', '', command_name)
@@ -83,7 +84,7 @@ def generate_filename(command_name, part_index):
     base_name = f"{command_name}.cast"
     if len(base_name) > 255:
         base_name = base_name[:250] + ".cast"
-    return base_name
+    return f"{command_name}_{part_index}.cast"
 
 def is_trivial_command(command, trivial_commands):
     return command.split('_')[0] in trivial_commands
