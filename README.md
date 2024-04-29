@@ -5,6 +5,11 @@ Ensure Asciinema is installed!!!!
 
 ## Usage
 
+Install Requirements
+```
+pip3 install -r requirements.txt
+```
+
 By default, patronus will run the redact, split, and server scripts.
 ```
 python3 patronus.py
@@ -13,7 +18,10 @@ python3 patronus.py
 
 Configure your zsh environment for automatic recordings.
 ```
-python3 patronus.py config
+python3 patronus.py on
+```
+```
+python3 patronus.py off
 ```
 
 
@@ -24,4 +32,4 @@ python3 patronus.py redact,split,server,config
 
 
 ## Recordings
-The scripts look for the necessary files in the static directory when running. If configuring outside of using the 'config' option, make sure the full scritps are stored in static/full and create the static/redacted_full and the static/splits directories.
+The scripts look for the necessary files in the static directory when running. If configuring outside of using the 'on' option, make sure the full scritps are stored in static/full and create the static/redacted_full and the static/splits directories.
