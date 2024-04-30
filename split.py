@@ -101,19 +101,15 @@ def extract_command(display):
     for line in reversed(lines):
         if '└─$' in line:
             command = line.split('└─$')[-1].strip()
+            
             parts = command.split()
             if parts:
-                command = parts[0]
-                if '/' in command:
-                    command = command.split('/')[-1]
-                if command.startswith(('python3', 'sudo')):
-                    script_name = parts[1] if len(parts) > 1 else ""
-                    script_name = script_name.split()[0] if ' ' in script_name else script_name
-                    return script_name.replace(' ', '_')
+                if parts[0].startswith(('python3', 'sudo')):
+                    full_command = " ".join(parts[1:])
+                    
+                    return full_command.replace(' ', '_')
             return command.replace(' ', '_')
     return "initial"
-
-
 
 def clean_filename(command_name):
     command_name = re.sub(r'(-u_\S+|-p_\S+|-H_\S+)', '', command_name)
@@ -121,27 +117,32 @@ def clean_filename(command_name):
     command_name = command_name.lstrip('_')
     if not command_name:
         command_name = "command"
+        print(command_name)
+    
     return command_name
+    
 
 
-def generate_filename(command_name, part_index):
-    base_name = f"{command_name}.cast"
+def generate_filename(command, part_index):
+    cleaned_command_name = clean_filename(command)
+    base_name = f"{cleaned_command_name}.cast"
     if len(base_name) > 255:
         base_name = base_name[:250] + ".cast"
-    return f"{command_name}_{part_index}.cast"
+    return f"{base_name}_{part_index}.cast"
 
 
-def generate_output_filename(input_filename, output_dir):
-    base_name, ext = os.path.splitext(input_filename)
-    output_filename = os.path.join(output_dir, base_name + '.cast')
+def generate_output_filename(command, output_dir):
+    cleaned_command_name = clean_filename(command)
+    output_filename = os.path.join(output_dir, f"{cleaned_command_name}.cast")
     if os.path.exists(output_filename):
         index = 1
         while True:
-            new_output_filename = os.path.join(output_dir, f"{base_name}_{index}.cast")
+            new_output_filename = os.path.join(output_dir, f"{cleaned_command_name}_{index}.cast")
             if not os.path.exists(new_output_filename):
                 return new_output_filename
             index += 1
     return output_filename
+
 
 def is_trivial_command(command, trivial_commands):
     return command.split('_')[0] in trivial_commands
