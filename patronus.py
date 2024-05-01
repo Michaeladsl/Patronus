@@ -2,8 +2,16 @@ import argparse
 import subprocess
 import os
 
+def check_and_install_asciinema():
+    try:
+        subprocess.run(['asciinema', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except FileNotFoundError:
+        print('\033[91mAsciinema is not installed. Installing...\033[0m')
+        subprocess.run(['sudo', 'apt', 'install', '-y', 'asciinema'])
+        print('\033[92mAsciinema installed successfully.\033[0m')
+
+
 def run_script(script_name, args):
-    """Run the specified script with additional arguments."""
     script_directory = os.path.dirname(os.path.abspath(__file__))
     full_script_path = os.path.join(script_directory, script_name)
     
@@ -19,17 +27,15 @@ def run_script(script_name, args):
         print(f"Error running {script_name}: {e}")
 
 def remove_gitkeep_files():
-    """Remove .gitkeep files from specified static subdirectories."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     directories = ['static/redacted_full', 'static/full', 'static/splits']
     for dir_path in directories:
         full_path = os.path.join(base_dir, dir_path, '.gitkeep')
         if os.path.exists(full_path):
             os.remove(full_path)
-            
+            #print(f"Removed .gitkeep from {full_path}")
 
 def nuke_directories():
-    """Erase all contents of specified directories."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     directories = ['static/full', 'static/redacted_full', 'static/splits']
     for dir_path in directories:
@@ -51,16 +57,17 @@ def main():
     args = parser.parse_args()
 
     if args.mode:
+        if args.mode == 'on':
+            check_and_install_asciinema()
         run_script('configure.sh', ['--undo'] if args.mode == 'off' else [])
         return
 
     if args.nuke:
         nuke_directories()
-        return
+        return 
 
     remove_gitkeep_files()
 
-    # Run preset scripts
     scripts_to_run = ['redact.py', 'split.py', 'server.py']
     for script in scripts_to_run:
         run_script(script, [])
