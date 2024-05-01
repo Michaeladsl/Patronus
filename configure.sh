@@ -1,5 +1,9 @@
 #!/bin/bash
 
+GREEN='\033[92m'
+RESET='\033[0m'
+
+
 undo=false
 
 while [[ "$#" -gt 0 ]]; do
@@ -46,4 +50,4 @@ fi
 EOF
 fi
 
-echo "Setup complete. Please open a new terminal to start recording sessions."
+echo -e "${GREEN}Setup complete. Please open a new terminal to start recording sessions.${RESET}"
