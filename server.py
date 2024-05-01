@@ -2,6 +2,8 @@ from flask import Flask, render_template_string, request, jsonify
 import subprocess
 import os
 import shutil
+import psutil
+
 
 app = Flask(__name__)
 
@@ -13,19 +15,34 @@ def get_cast_files():
     return tools, files_dict
 
 def get_disk_usage():
-    _, _, free = shutil.disk_usage("/")
-    free_gb = free / (1024 ** 3)  
+    partitions = psutil.disk_partitions(all=True)
+
+    total_free_gb = 0
+    total_recordings_size = 0
+
+    for partition in partitions:
+        try:
+            disk_usage = psutil.disk_usage(partition.mountpoint)
+            free_gb = disk_usage.free / (1024 ** 3)
+            total_free_gb += free_gb
+        except PermissionError:
+            pass
 
     def get_directory_size(path):
-        return sum(os.path.getsize(os.path.join(dirpath, filename))
-                   for dirpath, dirnames, filenames in os.walk(path)
-                   for filename in filenames) / (1024 ** 3)  
+        total_size = sum(
+            os.path.getsize(os.path.join(dirpath, filename))
+            for dirpath, _, filenames in os.walk(path)
+            for filename in filenames
+        )
+        return total_size / (1024 ** 3)
 
-    recordings_size = get_directory_size(os.path.join(app.root_path, 'static', 'splits')) + \
-                      get_directory_size(os.path.join(app.root_path, 'static', 'redacted_full')) + \
-                      get_directory_size(os.path.join(app.root_path, 'static', 'full'))
+    recordings_size = (
+        get_directory_size(os.path.join(app.root_path, "static", "splits"))
+        + get_directory_size(os.path.join(app.root_path, "static", "redacted_full"))
+        + get_directory_size(os.path.join(app.root_path, "static", "full"))
+    )
 
-    return free_gb, recordings_size
+    return total_free_gb, recordings_size
 
 @app.route('/')
 def index():
@@ -275,4 +292,4 @@ COMMAND_TEMPLATE = '''
 '''
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8000, debug=True)
+    app.run(host='127.0.0.1', port=8000, debug=False)
