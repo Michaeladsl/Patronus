@@ -7,6 +7,8 @@ import json
 
 app = Flask(__name__)
 
+from flask import request
+
 def get_cast_files():
     static_dir = os.path.join(app.root_path, 'static', 'splits')
     files = [f for f in os.listdir(static_dir) if f.endswith('.cast')]
@@ -17,11 +19,15 @@ def get_cast_files():
         mappings = json.load(f)
         timestamps = {file_path: timestamp for file_path, timestamp in mappings.items() if timestamp is not None}
     
-    sorted_files = sorted(files, key=lambda x: timestamps.get(os.path.join(static_dir, x), ''))
+    if request.path.startswith('/command/'):
+        sorted_files = sorted(files, key=lambda x: timestamps.get(os.path.join(static_dir, x), ''))
+    else:
+        sorted_files = sorted(files)
 
     tools = sorted(set(f.split('_')[0] for f in sorted_files))
     files_dict = {tool: [f for f in sorted_files if f.split('_')[0] == tool] for tool in tools}
     return tools, files_dict
+
 
 
 
