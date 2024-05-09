@@ -28,8 +28,8 @@ def reinsert_ansi_codes(text, ansi_positions):
 def redact_sensitive_info(text, redaction_word=None):
     clean_text, ansi_positions = extract_ansi_and_text(text)
     patterns = [
-        (r'(?<=-H\s)\S+', lambda m: '*' * len(m.group())),
-        (r'(?<=-p\s)\S+', lambda m: '*' * len(m.group())),
+        (r'(?<=-H\s)["\']?\S+["\']?', lambda m: '*' * len(m.group())),
+        (r'(?<=-p\s)["\']?\S+["\']?', lambda m: '*' * len(m.group())),
         (r'\b[a-fA-F0-9]{32}:[a-fA-F0-9]{32}\b', lambda m: '*' * len(m.group()))
     ]
     if redaction_word:
