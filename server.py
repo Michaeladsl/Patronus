@@ -82,7 +82,34 @@ def index():
 def command_page(command):
     _, files_dict = get_cast_files()
     command_files = files_dict.get(command, [])
-    return render_template_string(COMMAND_TEMPLATE, command=command, command_files=command_files, favorites=favorites)
+    
+    # Initialize variables for date grouping
+    current_date = None
+    files_with_dates = []
+
+    # Loop through command files to group them by date
+    for file in command_files:
+        file_path = os.path.join(app.root_path, 'static', 'splits', file)
+        timestamp = get_timestamp(file_path)
+        date = timestamp.split()[0] if timestamp else None
+        
+        # Add date separator if new date is encountered
+        if date != current_date:
+            current_date = date
+            files_with_dates.append(date)
+
+        files_with_dates.append(file)
+
+    return render_template_string(COMMAND_TEMPLATE, command=command, command_files=files_with_dates, favorites=favorites)
+
+def get_timestamp(file_path):
+    mappings_file = os.path.join(app.root_path, 'static', 'splits', 'file_timestamp_mapping.json')
+    with open(mappings_file, 'r') as f:
+        mappings = json.load(f)
+        timestamp = mappings.get(file_path)
+        return timestamp
+
+
 
 @app.route('/favorites')
 def favorites_page():
@@ -326,30 +353,48 @@ COMMAND_TEMPLATE = '''
         .exit-btn {
             color: red;
         }
+        .file-date {
+            color: white;
+            font-size: 20px;
+            margin: 20px auto 10px;
+            text-align: left;
+            width: 95%;
+        }
+        .file-actions {
+            display: flex; /* Ensures icons are in a row */
+            align-items: center;
+            margin-left: 10px; /* Add space between text and icons */
+        }
     </style>
 </head>
 <body>
-    {% for file in command_files %}
-    <div class="file-name" id="file-{{ loop.index }}" onclick="toggleDisplay('{{ file }}', event)">
-        <span id="name-{{ file }}">{{ file.split('.cast')[0] }}</span>.cast
-        <i class="edit-icon" onclick="enableEdit('{{ file }}', event)">🖊️</i>
-        <i class="save-btn" onclick="confirmSave('{{ file }}', event)" style="visibility: hidden;">&#10004;</i>
-        <i class="exit-btn" onclick="exitEditMode('{{ file }}', event)" style="visibility: hidden;">&#10006;</i>
-        {% if file in favorites %}
-            <span class="favorite" onclick="toggleFavorite('{{ file }}', event)">&#9733;</span>
+    {% set current_date = None %}
+    {% for item in command_files %}
+        {% if item.endswith('.cast') %}
+            <div class="file-name" id="file-{{ loop.index }}" onclick="toggleDisplay('{{ item }}', event)">
+                <span id="name-{{ item }}" class="file-text">{{ item.split('.cast')[0] }}</span>
+                <i class="edit-icon" onclick="enableEdit('{{ item }}', event)">🖊️</i>
+                <i class="save-btn" onclick="confirmSave('{{ item }}', event)" style="visibility: hidden;">&#10004;</i>
+                <i class="exit-btn" onclick="exitEditMode('{{ item }}', event)" style="visibility: hidden;">&#10006;</i>
+                {% if item in favorites %}
+                    <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9733;</span>
+                {% else %}
+                    <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9734;</span>
+                {% endif %}
+                
+            </div>
+            <div id="demo-{{ item }}" class="dropdown-content">
+                <div class="redact-controls">
+                    <input type="text" id="redact-word-{{ item }}" placeholder="Word to Redact">
+                    <button onclick="redactAndReload('{{ item }}')">Redact and Reload</button>
+                </div>
+                <div class="delete-controls">
+                    <button class="delete-button" onclick="deleteFile('{{ item }}')">Delete File</button>
+                </div>
+            </div>
         {% else %}
-            <span class="favorite" onclick="toggleFavorite('{{ file }}', event)">&#9734;</span>
+            <div class="file-date">{{ item }}</div>
         {% endif %}
-    </div>
-    <div id="demo-{{ file }}" class="dropdown-content">
-        <div class="redact-controls">
-            <input type="text" id="redact-word-{{ file }}" placeholder="Word to Redact">
-            <button onclick="redactAndReload('{{ file }}')">Redact and Reload</button>
-        </div>
-        <div class="delete-controls">
-            <button class="delete-button" onclick="deleteFile('{{ file }}')">Delete File</button>
-        </div>
-    </div>
     {% endfor %}
     <script src="{{ url_for('static', filename='asciinema-player.min.js') }}"></script>
     <script>
@@ -374,54 +419,61 @@ COMMAND_TEMPLATE = '''
 
         
         function enableEdit(file, event) {
-            event.stopPropagation();
+            event.stopPropagation();  // Stop event propagation here as well
             var nameSpan = document.getElementById('name-' + file);
             nameSpan.contentEditable = true;
-            nameSpan.focus();
-            var parentDiv = nameSpan.closest('.file-name');
-            var editIcon = parentDiv.querySelector('.edit-icon');
-            var saveIcon = parentDiv.querySelector('.save-btn');
-            var exitIcon = parentDiv.querySelector('.exit-btn'); // New exit button
-            editIcon.style.visibility = 'hidden'; // Hide edit button
-            saveIcon.style.visibility = 'visible'; // Show save button
-            exitIcon.style.visibility = 'visible'; // Show exit button
+            nameSpan.focus(); // Focus the element for text editing
+
+            // Prevent click inside the editable area from bubbling up
+            nameSpan.onclick = function(event) {
+                event.stopPropagation();  // This prevents the click from bubbling further
+            };
+
+            // Adjust visibility of icons
+            var fileDiv = nameSpan.closest('.file-name');
+            fileDiv.querySelector('.edit-icon').style.visibility = 'hidden';
+            fileDiv.querySelector('.save-btn').style.visibility = 'visible';
+            fileDiv.querySelector('.exit-btn').style.visibility = 'visible';
         }
 
+
+
         function confirmSave(file, event) {
-            event.stopPropagation();
+            event.stopPropagation();  // This should be here as well
             if (confirm("Are you sure you want to save the changes?")) {
                 saveEdit(file, event);
             }
         }
 
         function saveEdit(file, event) {
+            event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
-            var newName = nameSpan.textContent + '.cast'; // Append the extension
+            var newName = nameSpan.textContent.trim(); // Trim the text to remove extra spaces
+
             fetch('/edit', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({old_file: file, new_file: newName})
-            }).then(response => {
-                if (response.ok) {
-                    return response.json();
-                }
-                throw new Error('Failed to edit file name.');
-            }).then(data => {
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({old_file: file, new_file: newName + '.cast'})
+            }).then(response => response.json())
+            .then(data => {
                 if (data.success) {
                     nameSpan.contentEditable = false;
-                    var saveBtn = document.querySelector('.save-btn');
-                    saveBtn.style.visibility = 'hidden'; // Hide save button after save
                     alert('File name updated successfully!');
+
+                    // Reset visibility of buttons
+                    var fileDiv = nameSpan.closest('.file-name');
+                    fileDiv.querySelector('.edit-icon').style.visibility = 'visible';
+                    fileDiv.querySelector('.save-btn').style.visibility = 'hidden';
+                    fileDiv.querySelector('.exit-btn').style.visibility = 'hidden';
                 } else {
                     alert('Failed to edit the file name.');
                 }
             }).catch(error => {
                 console.error('Error:', error);
-                alert(error.message);
+                alert('Error saving the file name: ' + error.message);
             });
         }
+
 
         function exitEditMode(file, event) {
             event.stopPropagation();
@@ -438,6 +490,7 @@ COMMAND_TEMPLATE = '''
         }
 
         function toggleFavorite(file) {
+            event.stopPropagation();
             fetch('/toggle_favorite', {
                 method: 'POST',
                 headers: {
@@ -513,3 +566,4 @@ COMMAND_TEMPLATE = '''
 '''
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8000, debug=False)
+
