@@ -4,6 +4,8 @@ import os
 import shutil
 import psutil
 import json
+import re
+
 
 app = Flask(__name__)
 
@@ -29,6 +31,41 @@ def get_cast_files():
     return tools, files_dict
 
 
+def strip_ansi_sequences(file_path):
+    with open(file_path, 'r') as f:
+        content = f.read()
+        return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', content)
+
+def create_text_versions():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(script_dir, 'static')
+    text_dir = os.path.join(static_dir, 'text')
+
+    os.makedirs(text_dir, exist_ok=True)
+
+    splits_dir = os.path.join(static_dir, 'splits')
+    for file in os.listdir(splits_dir):
+        if file.endswith('.cast'):
+            file_path = os.path.join(splits_dir, file)
+            text_content = strip_ansi_sequences(file_path)
+            text_file_path = os.path.join(text_dir, file + '.txt')
+            with open(text_file_path, 'w') as f:
+                f.write(text_content)
+
+create_text_versions()
+
+
+
+def search_index(query):
+    text_dir = os.path.join(app.root_path, 'static', 'text')
+    results = []
+    for text_file in os.listdir(text_dir):
+        if text_file.endswith('.txt'):
+            with open(os.path.join(text_dir, text_file), 'r') as f:
+                content = f.read()
+                if query.lower() in content.lower():
+                    results.append(text_file.replace('.txt', ''))
+    return results
 
 
 def get_disk_usage():
@@ -50,7 +87,8 @@ def get_disk_usage():
     recordings_size = (
         get_directory_size(os.path.join(app.root_path, "static", "splits")) +
         get_directory_size(os.path.join(app.root_path, "static", "redacted_full")) +
-        get_directory_size(os.path.join(app.root_path, "static", "full"))
+        get_directory_size(os.path.join(app.root_path, "static", "full")) +
+        get_directory_size(os.path.join(app.root_path, "static", "text"))
     )
     return total_free_gb, recordings_size
 
@@ -159,6 +197,11 @@ def toggle_favorite():
     save_favorites(favorites)
     return jsonify(success=True)
 
+@app.route('/search')
+def search_files():
+    query = request.args.get('q', '')
+    results = search_index(query)
+    return jsonify(results)
 
 
 HTML_TEMPLATE = '''
@@ -178,7 +221,7 @@ HTML_TEMPLATE = '''
             text-decoration: none;
             display: block;
             font-size: 18px;
-            margin: 10px auto;  /* Centering the buttons */
+            margin: 10px auto; 
             cursor: pointer;
             border-radius: 5px;
             width: 95%;
@@ -223,16 +266,85 @@ HTML_TEMPLATE = '''
         .favorites-button:hover {
             background-color: #3ba888;
         }
+        body { background-color: #000000; color: white; }
+        input[type="text"] {
+            padding: 8px;
+            width: 94%; 
+            margin: 10px auto;
+            display: block;
+            background-color: #16213e;
+            border: 1px solid #4ecca3;
+            color: white;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        .search-results {
+            background-color: #333;
+            border: 1px solid #4ecca3;
+            color: white;
+            position: center;
+            width: 94%;
+            margin: 0 auto;
+            display: none;
+            z-index: 1000;
+        }
+        .search-result {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #4ecca3;
+            cursor: pointer;
+        }
+        .search-result:last-child {
+            border-bottom: none;
+        }
+        .search-result:hover {
+            background-color: #4ecca3;
+        }
     </style>
 </head>
 <body>
     <div class="disk-meter">
         Free Space: {{ free_gb|round(2) }} GB, Recordings Size: {{ recordings_size|round(2) }} GB
     </div>
+    <input type="text" id="searchInput" placeholder="Search for commands..." oninput="performSearch()">
+    <div id="searchResults" class="search-results"></div>
     <a class="favorites-button" href="/favorites">Favorites</a>
     {% for tool, count in files_dict.items() %}
     <div class="button" onclick="window.location.href='/command/{{ tool }}'">{{ tool }} ({{ count|length }})</div>
     {% endfor %}
+    <script>
+        function performSearch() {
+            let input = document.getElementById('searchInput');
+            let dropdown = document.getElementById('searchResults');
+
+            if (input.value.length < 1) {
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            fetch(`/search?q=${encodeURIComponent(input.value)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.length) {
+                    dropdown.innerHTML = data.map(item => `<div class="search-result" onclick="location.href='/command/${item.split('_')[0]}?open=${item}'">${item}</div>`).join('');
+                    dropdown.style.display = 'block';
+                } else {
+                    dropdown.innerHTML = '<div class="search-result">No results found</div>';
+                    dropdown.style.display = 'block';
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+        document.addEventListener('click', function(event) {
+            var searchInput = document.getElementById('searchInput');
+            var searchResults = document.getElementById('searchResults');
+
+            if (event.target !== searchInput && !searchResults.contains(event.target)) {
+                searchResults.style.display = 'none'; 
+            }
+        });
+
+    </script>
 </body>
 </html>
 '''
@@ -267,7 +379,7 @@ COMMAND_TEMPLATE = '''
         .edit-icon, .save-btn, .exit-btn {
             margin-left: 5px;
             cursor: pointer;
-            visibility: hidden; /* Initially hidden */
+            visibility: hidden; 
         }
         .file-name:hover .edit-icon {
             visibility: visible;
@@ -291,9 +403,9 @@ COMMAND_TEMPLATE = '''
         }
         
         .file-name, .dropdown-content {
-            box-sizing: border-box; /* Include padding and border in the element's total width and height */
-            width: 95%; /* Set the same width for both */
-            margin: 10px auto; /* Center both elements with auto margins */
+            box-sizing: border-box;
+            width: 95%; 
+            margin: 10px auto;
             background-color: #16213e;
             color: white;
             padding: 15px;
@@ -329,12 +441,12 @@ COMMAND_TEMPLATE = '''
             background-color: #3ba888;
         }
         .delete-button, .edit-button {
-            background-color: #E94560; /* Red color */
+            background-color: #E94560;
             padding: 10px 15px;
             margin-top: 5px;
         }
         .delete-button:hover, .edit-button:hover {
-            background-color: #D8315B; /* Slightly darker red on hover */
+            background-color: #D8315B;
         }
         
         .exit-btn:hover {
@@ -361,9 +473,9 @@ COMMAND_TEMPLATE = '''
             width: 95%;
         }
         .file-actions {
-            display: flex; /* Ensures icons are in a row */
+            display: flex;
             align-items: center;
-            margin-left: 10px; /* Add space between text and icons */
+            margin-left: 10px;
         }
     </style>
 </head>
@@ -409,27 +521,34 @@ COMMAND_TEMPLATE = '''
                 }
                 player.style.display = 'block';
                 
-                // Get current timestamp
                 var timestamp = new Date().getTime();
                 
-                // Use timestamp in URL to ensure fresh content
                 AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, player);
             }
         }
+        window.onload = function() {
+            const params = new URLSearchParams(window.location.search);
+            const openFile = params.get('open');
+            if (openFile) {
+                const player = document.getElementById('demo-' + openFile);
+                if (player) {
+                    player.style.display = 'block';
+                    AsciinemaPlayer.create('/static/splits/' + openFile + '?_=' + new Date().getTime(), player);
+                }
+            }
+        };
 
         
         function enableEdit(file, event) {
-            event.stopPropagation();  // Stop event propagation here as well
+            event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
             nameSpan.contentEditable = true;
-            nameSpan.focus(); // Focus the element for text editing
+            nameSpan.focus();
 
-            // Prevent click inside the editable area from bubbling up
             nameSpan.onclick = function(event) {
-                event.stopPropagation();  // This prevents the click from bubbling further
+                event.stopPropagation();  
             };
 
-            // Adjust visibility of icons
             var fileDiv = nameSpan.closest('.file-name');
             fileDiv.querySelector('.edit-icon').style.visibility = 'hidden';
             fileDiv.querySelector('.save-btn').style.visibility = 'visible';
@@ -439,7 +558,7 @@ COMMAND_TEMPLATE = '''
 
 
         function confirmSave(file, event) {
-            event.stopPropagation();  // This should be here as well
+            event.stopPropagation(); 
             if (confirm("Are you sure you want to save the changes?")) {
                 saveEdit(file, event);
             }
@@ -448,7 +567,7 @@ COMMAND_TEMPLATE = '''
         function saveEdit(file, event) {
             event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
-            var newName = nameSpan.textContent.trim(); // Trim the text to remove extra spaces
+            var newName = nameSpan.textContent.trim();
 
             fetch('/edit', {
                 method: 'POST',
@@ -460,7 +579,6 @@ COMMAND_TEMPLATE = '''
                     nameSpan.contentEditable = false;
                     alert('File name updated successfully!');
 
-                    // Reset visibility of buttons
                     var fileDiv = nameSpan.closest('.file-name');
                     fileDiv.querySelector('.edit-icon').style.visibility = 'visible';
                     fileDiv.querySelector('.save-btn').style.visibility = 'hidden';
@@ -482,10 +600,10 @@ COMMAND_TEMPLATE = '''
             var parentDiv = nameSpan.closest('.file-name');
             var editIcon = parentDiv.querySelector('.edit-icon');
             var saveIcon = parentDiv.querySelector('.save-btn');
-            var exitIcon = parentDiv.querySelector('.exit-btn'); // New exit button
-            editIcon.style.visibility = 'visible'; // Show edit button
-            saveIcon.style.visibility = 'hidden'; // Hide save button
-            exitIcon.style.visibility = 'hidden'; // Hide exit button
+            var exitIcon = parentDiv.querySelector('.exit-btn'); 
+            editIcon.style.visibility = 'visible'; 
+            saveIcon.style.visibility = 'hidden';
+            exitIcon.style.visibility = 'hidden'; 
             nameSpan.textContent = file.split('.cast')[0];
         }
 
@@ -500,7 +618,7 @@ COMMAND_TEMPLATE = '''
             }).then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    window.location.reload(); // Reload the page to reflect changes
+                    window.location.reload();
                 } else {
                     console.error('Failed to toggle favorite status');
                 }
@@ -521,23 +639,22 @@ COMMAND_TEMPLATE = '''
             }).then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    var timestamp = new Date().getTime(); // Get current timestamp
+                    var timestamp = new Date().getTime();
                     var playerContainer = document.getElementById('demo-' + filename);
-                    playerContainer.innerHTML = ''; // Clear existing content
+                    playerContainer.innerHTML = ''; 
                     wordInput.value = '';
 
-                    // Recreate the player with a new URL including the timestamp
                     setTimeout(() => {
                         playerContainer.style.display = 'block';
                         AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, playerContainer);
-                    }, 1000); // Adjust the delay as needed
+                    }, 1000);
                 }
             }).catch(error => {
                 console.error('Error:', error);
             });
         }
 
-
+    
         function deleteFile(filename) {
             if (confirm('Are you sure you want to delete this file?')) {
                 fetch('/delete', {
@@ -549,7 +666,6 @@ COMMAND_TEMPLATE = '''
                 }).then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        // Reload the page to reflect changes
                         window.location.reload();
                     } else {
                         alert('Failed to delete the file.');
