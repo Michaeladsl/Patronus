@@ -68,7 +68,7 @@ def main():
 
     remove_gitkeep_files()
 
-    scripts_to_run = ['redact.py', 'split.py', 'server.py']
+    scripts_to_run = ['redact.py', 'split.py', 'edit.py', 'server.py']
     for script in scripts_to_run:
         run_script(script, [])
 
