@@ -23,15 +23,27 @@ class Header:
         self.env = env or {}
 
     @staticmethod
-    def validate(header):
+    def validate(header, debug):
         if not header:
-            raise ValidationError("header must not be nil")
+            if debug:
+                raise ValidationError("header must not be nil")
+            else:
+                return False
         if header.version != 2:
-            raise ValidationError("only casts with version 2 are valid")
+            if debug:
+                raise ValidationError("only casts with version 2 are valid")
+            else:
+                return False
         if header.width <= 0:
-            raise ValidationError("a valid width (>0) must be specified")
+            if debug:
+                raise ValidationError("a valid width (>0) must be specified")
+            else:
+                return False
         if header.height <= 0:
-            raise ValidationError("a valid height (>0) must be specified")
+            if debug:
+                raise ValidationError("a valid height (>0) must be specified")
+            else:
+                return False
         return True
 
 class Event:
@@ -41,11 +53,17 @@ class Event:
         self.data = data
 
     @staticmethod
-    def validate(event):
+    def validate(event, debug):
         if not event:
-            raise ValidationError("event must not be nil")
+            if debug:
+                raise ValidationError("event must not be nil")
+            else:
+                return False
         if event.type not in ["i", "o"]:
-            raise ValidationError("type must either be 'o' or 'i'")
+            if debug:
+                raise ValidationError("type must either be 'o' or 'i'")
+            else:
+                return False
         return True
 
 class Cast:
@@ -54,29 +72,44 @@ class Cast:
         self.event_stream = event_stream
 
     @staticmethod
-    def validate(cast):
+    def validate(cast, debug):
         if not cast:
-            raise ValidationError("cast must not be nil")
-        Header.validate(cast.header)
-        Cast.validate_event_stream(cast.event_stream)
+            if debug:
+                raise ValidationError("cast must not be nil")
+            else:
+                return False
+        if not Header.validate(cast.header, debug):
+            return False
+        if not Cast.validate_event_stream(cast.event_stream, debug):
+            return False
         return True
 
     @staticmethod
-    def validate_event_stream(event_stream: List[Event]):
+    def validate_event_stream(event_stream: List[Event], debug):
         last_time = -1
         for event in event_stream:
             if event.time < last_time:
-                raise ValidationError("events must be ordered by time")
-            Event.validate(event)
+                if debug:
+                    raise ValidationError("events must be ordered by time")
+                else:
+                    return False
+            if not Event.validate(event, debug):
+                return False
             last_time = event.time
         return True
 
     @staticmethod
-    def encode(writer, cast):
+    def encode(writer, cast, debug):
         if not writer:
-            raise ValidationError("a writer must be specified")
+            if debug:
+                raise ValidationError("a writer must be specified")
+            else:
+                return False
         if not cast:
-            raise ValidationError("a cast must be specified")
+            if debug:
+                raise ValidationError("a cast must be specified")
+            else:
+                return False
 
         # Use compact encoding for the header
         header_json = json.dumps(cast.header.__dict__)
@@ -88,18 +121,27 @@ class Cast:
         return True
 
     @staticmethod
-    def decode(reader):
+    def decode(reader, debug):
         if not reader:
-            raise ValidationError("reader must not be nil")
+            if debug:
+                raise ValidationError("reader must not be nil")
+            else:
+                return False
 
         try:
             first_line = reader.readline().strip()
             if not first_line:
-                raise ValidationError("Header line is empty")
+                if debug:
+                    raise ValidationError("Header line is empty")
+                else:
+                    return False
             header = json.loads(first_line)
             header_obj = Header(**header)
         except json.JSONDecodeError as e:
-            raise ValidationError(f"Error decoding header: {e}")
+            if debug:
+                raise ValidationError(f"Error decoding header: {e}")
+            else:
+                return False
 
         event_stream = []
         for line in reader:
@@ -111,10 +153,14 @@ class Cast:
                 event = Event(event_data[0], event_data[1], event_data[2])
                 event_stream.append(event)
             except json.JSONDecodeError as e:
-                raise ValidationError(f"Error decoding event: {e}")
+                if debug:
+                    raise ValidationError(f"Error decoding event: {e}")
+                else:
+                    return False
 
         cast = Cast(header_obj, event_stream)
-        Cast.validate(cast)
+        if not Cast.validate(cast, debug):
+            return False
         return cast
 
 class QuantizeRange:
@@ -132,13 +178,22 @@ class QuantizeTransformation:
     def __init__(self, ranges: List[QuantizeRange]):
         self.ranges = ranges
 
-    def transform(self, cast: Cast):
+    def transform(self, cast: Cast, debug):
         if not cast:
-            raise ValidationError("cast must not be nil")
+            if debug:
+                raise ValidationError("cast must not be nil")
+            else:
+                return False
         if not cast.event_stream:
-            raise ValidationError("event stream must not be empty")
+            if debug:
+                raise ValidationError("event stream must not be empty")
+            else:
+                return False
         if not self.ranges:
-            raise ValidationError("at least one quantization range must be specified")
+            if debug:
+                raise ValidationError("at least one quantization range must be specified")
+            else:
+                return False
 
         deltas = [0] * len(cast.event_stream)
         for i in range(len(cast.event_stream) - 1):
@@ -156,31 +211,45 @@ class QuantizeTransformation:
 
         return True
 
-def parse_quantize_range(input: str) -> QuantizeRange:
+def parse_quantize_range(input: str, debug) -> QuantizeRange:
     parts = input.split(',')
     if len(parts) > 2:
-        raise ValidationError("invalid range format: must be `value[,value]`")
+        if debug:
+            raise ValidationError("invalid range format: must be `value[,value]`")
+        else:
+            return None
 
     from_ = float(parts[0])
     to = float(parts[1]) if len(parts) == 2 else float('inf')
 
     if from_ < 0:
-        raise ValidationError("constraint not verified: from >= 0")
+        if debug:
+            raise ValidationError("constraint not verified: from >= 0")
+        else:
+            return None
     if to <= from_:
-        raise ValidationError("constraint not verified: from < to")
+        if debug:
+            raise ValidationError("constraint not verified: from < to")
+        else:
+            return None
 
     return QuantizeRange(from_, to)
 
-def parse_quantize_ranges(inputs: List[str]) -> List[QuantizeRange]:
+def parse_quantize_ranges(inputs: List[str], debug) -> List[QuantizeRange]:
     ranges = []
     for input in inputs:
-        ranges.append(parse_quantize_range(input))
+        range_ = parse_quantize_range(input, debug)
+        if range_:
+            ranges.append(range_)
     return ranges
 
 class Transformer:
     def __init__(self, transformation: QuantizeTransformation, input_file: Optional[str], output_file: Optional[str], debug: bool):
         if not transformation:
-            raise ValidationError("a transformation must be specified")
+            if debug:
+                raise ValidationError("a transformation must be specified")
+            else:
+                return None
         
         self.transformation = transformation
         self.input_file = input_file
@@ -192,16 +261,19 @@ class Transformer:
             if self.debug:
                 print(f"Reading file: {self.input_file}")
             with open(self.input_file, 'r') as infile:
-                cast = Cast.decode(infile)
-                Cast.validate(cast)
-                self.transformation.transform(cast)
+                cast = Cast.decode(infile, self.debug)
+                if not cast:
+                    return
+                Cast.validate(cast, self.debug)
+                self.transformation.transform(cast, self.debug)
             
             if self.debug:
                 print(f"Writing file: {self.output_file}")
             with open(self.output_file, 'w') as outfile:
-                Cast.encode(outfile, cast)
+                Cast.encode(outfile, cast, self.debug)
         except Exception as e:
-            raise ValidationError(f"Error processing file {self.input_file}: {e}")
+            if self.debug:
+                raise ValidationError(f"Error processing file {self.input_file}: {e}")
 
 def quantize_action(script_dir: str, debug: bool):
     input_dir = os.path.join(script_dir, 'static', 'splits')
@@ -209,7 +281,7 @@ def quantize_action(script_dir: str, debug: bool):
         print(f"Input directory: {input_dir}")
     
     default_range = ["2"]
-    quantize_ranges = parse_quantize_ranges(default_range)
+    quantize_ranges = parse_quantize_ranges(default_range, debug)
     transformation = QuantizeTransformation(quantize_ranges)
 
     for filename in os.listdir(input_dir):
