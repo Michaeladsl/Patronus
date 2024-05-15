@@ -5,6 +5,8 @@ import shutil
 import psutil
 import json
 import re
+from tqdm import tqdm
+
 
 
 app = Flask(__name__)
@@ -110,6 +112,73 @@ def save_favorites(favorites):
 
 favorites = load_favorites()
 
+
+def combine_cast_files(input_files, output_file, debug=False):
+    combined_events = []
+    start_time_offset = 0.0 
+    header = None
+
+    for file in tqdm(input_files, desc="Combining CAST Files"):
+        file_path = os.path.join(app.root_path, 'static', 'splits', file)
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            if not header:
+                header = json.loads(lines[0].strip())
+                combined_events.append(json.dumps(header))
+            events = [json.loads(line.strip()) for line in lines[1:]]
+
+            if not events:
+                continue
+
+            if len(combined_events) > 1:
+                last_event = json.loads(combined_events[-1])
+                if debug:
+                    print(f"Last event: {last_event}")
+                if not isinstance(last_event, list) or len(last_event) < 1:
+                    raise ValueError("Last event is not in the expected format.")
+                last_event_time = float(last_event[0])
+            else:
+                last_event_time = 0.0
+
+            first_event_time = float(events[0][0])
+            if debug:
+                print(f"First event time: {first_event_time}")
+                print(f"Start time offset before adjustment: {start_time_offset}")
+            
+            if last_event_time > 0.0:
+                start_time_offset += last_event_time - first_event_time
+
+            if debug:
+                print(f"Start time offset after adjustment: {start_time_offset}")
+
+            for event in events:
+                event_time = float(event[0]) + start_time_offset
+                combined_events.append(json.dumps([event_time, event[1], event[2]]))
+
+    output_path = os.path.join(app.root_path, 'static', 'splits', output_file)
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(combined_events) + '\n')
+
+    if debug:
+        print(f"Combined {len(input_files)} files into {output_file}")
+
+@app.route('/combine_files', methods=['POST'])
+def combine_files():
+    data = request.json
+    files = data['files']
+    new_file_name = data['new_file_name']
+
+    if not new_file_name.endswith('.cast'):
+        new_file_name += '.cast'
+
+    combine_cast_files(files, new_file_name, debug=True)
+
+    favorites[new_file_name] = True
+    save_favorites(favorites)
+
+    return jsonify(success=True)
+
+
 @app.route('/')
 def index():
     tools, files_dict = get_cast_files()
@@ -121,17 +190,14 @@ def command_page(command):
     _, files_dict = get_cast_files()
     command_files = files_dict.get(command, [])
     
-    # Initialize variables for date grouping
     current_date = None
     files_with_dates = []
 
-    # Loop through command files to group them by date
     for file in command_files:
         file_path = os.path.join(app.root_path, 'static', 'splits', file)
         timestamp = get_timestamp(file_path)
         date = timestamp.split()[0] if timestamp else None
         
-        # Add date separator if new date is encountered
         if date != current_date:
             current_date = date
             files_with_dates.append(date)
@@ -153,7 +219,9 @@ def get_timestamp(file_path):
 def favorites_page():
     _, files_dict = get_cast_files()
     favorites_files = [file for file in favorites if file in sum(files_dict.values(), [])]
-    return render_template_string(COMMAND_TEMPLATE, command="Favorites", command_files=favorites_files, favorites=favorites)
+    return render_template_string(COMMAND_TEMPLATE, command="Favorites", command_files=favorites_files, favorites=favorites_files)
+
+
 
 @app.route('/redact', methods=['POST'])
 def redact_text():
@@ -477,6 +545,74 @@ COMMAND_TEMPLATE = '''
             align-items: center;
             margin-left: 10px;
         }
+        .combine-button {
+            background-color: #4ecca3;
+            border: none;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 5px;
+            width: 95%;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+            margin: 10px auto;
+            display: block;
+        }
+        .combine-button:hover {
+            background-color: #3ba888;
+        }
+        .combine-popup {
+            display: none;
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #16213e;
+            border: 1px solid #4ecca3;
+            padding: 20px;
+            z-index: 1000;
+            color: white;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 10px;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+        .combine-popup .item {
+            padding: 10px;
+            background-color: #1a1a1a;
+            margin: 5px 0;
+            border: 1px solid #4ecca3;
+            cursor: grab;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        .combine-popup .item .remove-btn {
+            color: red;
+            cursor: pointer;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .combine-popup .generate-button {
+            background-color: #4ecca3;
+            border: none;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 5px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .combine-popup .generate-button:hover {
+            background-color: #3ba888;
+        }
     </style>
 </head>
 <body>
@@ -493,7 +629,6 @@ COMMAND_TEMPLATE = '''
                 {% else %}
                     <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9734;</span>
                 {% endif %}
-                
             </div>
             <div id="demo-{{ item }}" class="dropdown-content">
                 <div class="redact-controls">
@@ -508,6 +643,18 @@ COMMAND_TEMPLATE = '''
             <div class="file-date">{{ item }}</div>
         {% endif %}
     {% endfor %}
+    {% if command == "Favorites" %}
+        <a class="combine-button" onclick="openCombinePopup()">Combine</a>
+        <div class="combine-popup" id="combinePopup">
+            <h3>Combine Favorites</h3>
+            <div id="draggableContainer"></div>
+            <div style="display: flex; align-items: center;">
+                <input type="text" id="newFileName" placeholder="New File Name" style="width: 90%;">
+                <span style="margin-left: 5px;">.cast</span>
+            </div>
+            <button class="generate-button" onclick="generateCombinedFile()">Generate</button>
+        </div>
+    {% endif %}
     <script src="{{ url_for('static', filename='asciinema-player.min.js') }}"></script>
     <script>
         function toggleDisplay(filename) {
@@ -526,6 +673,7 @@ COMMAND_TEMPLATE = '''
                 AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, player);
             }
         }
+
         window.onload = function() {
             const params = new URLSearchParams(window.location.search);
             const openFile = params.get('open');
@@ -537,6 +685,121 @@ COMMAND_TEMPLATE = '''
                 }
             }
         };
+
+        function openCombinePopup() {
+            const popup = document.getElementById('combinePopup');
+            popup.style.display = 'block';
+
+            const draggableContainer = document.getElementById('draggableContainer');
+            draggableContainer.innerHTML = '';
+
+            const favoriteFiles = {{ favorites|tojson }};
+            favoriteFiles.forEach(function(file) {
+                const item = document.createElement('div');
+                item.classList.add('item');
+                item.textContent = file;
+
+                const removeBtn = document.createElement('span');
+                removeBtn.classList.add('remove-btn');
+                removeBtn.textContent = '×';
+                removeBtn.onclick = function() {
+                    item.remove();
+                };
+
+                item.appendChild(removeBtn);
+                item.draggable = true;
+                draggableContainer.appendChild(item);
+            });
+
+            makeItemsDraggable();
+        }
+
+        function makeItemsDraggable() {
+            const container = document.getElementById('draggableContainer');
+            const items = container.getElementsByClassName('item');
+            
+            let dragSrcEl = null;
+
+            function handleDragStart(e) {
+                this.style.opacity = '0.4';
+                dragSrcEl = this;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/html', this.innerHTML);
+            }
+
+            function handleDragEnd(e) {
+                this.style.opacity = '1';
+                Array.from(items).forEach(function (item) {
+                    item.classList.remove('over');
+                });
+            }
+
+            function handleDragOver(e) {
+                if (e.preventDefault) {
+                    e.preventDefault();
+                }
+                return false;
+            }
+
+            function handleDragEnter(e) {
+                this.classList.add('over');
+            }
+
+            function handleDragLeave(e) {
+                this.classList.remove('over');
+            }
+
+            function handleDrop(e) {
+                if (e.stopPropagation) {
+                    e.stopPropagation();
+                }
+
+                if (dragSrcEl !== this) {
+                    dragSrcEl.innerHTML = this.innerHTML;
+                    this.innerHTML = e.dataTransfer.getData('text/html');
+                }
+                return false;
+            }
+
+            Array.from(items).forEach(function (item) {
+                item.addEventListener('dragstart', handleDragStart, false);
+                item.addEventListener('dragend', handleDragEnd, false);
+                item.addEventListener('dragover', handleDragOver, false);
+                item.addEventListener('dragenter', handleDragEnter, false);
+                item.addEventListener('dragleave', handleDragLeave, false);
+                item.addEventListener('drop', handleDrop, false);
+            });
+        }
+
+        function generateCombinedFile() {
+            const container = document.getElementById('draggableContainer');
+            const items = container.getElementsByClassName('item');
+            const fileOrder = Array.from(items).map(item => item.textContent.replace('×', '').trim());
+            let newFileName = document.getElementById('newFileName').value.trim();
+
+            if (!newFileName.endsWith('.cast')) {
+                newFileName += '.cast';
+            }
+
+            fetch('/combine_files', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ files: fileOrder, new_file_name: newFileName })
+            }).then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Files combined successfully!');
+                    location.reload();
+                } else {
+                    alert('Failed to combine files.');
+                }
+            }).catch(error => {
+                console.error('Error:', error);
+                alert('Error combining files.');
+            });
+        }
 
         
         function enableEdit(file, event) {
@@ -681,5 +944,4 @@ COMMAND_TEMPLATE = '''
 </html>
 '''
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=8000, debug=False)
-
+    app.run(host='127.0.0.1', port=8005, debug=False)
