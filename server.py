@@ -5,6 +5,7 @@ import shutil
 import psutil
 import json
 import re
+import pyte
 from tqdm import tqdm
 
 
@@ -38,6 +39,33 @@ def strip_ansi_sequences(file_path):
         content = f.read()
         return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', content)
 
+def process_with_terminal_emulator(input_file, output_file):
+    screen = pyte.Screen(236, 49)
+    stream = pyte.Stream(screen)
+    screen.reset()
+
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+    
+    lines = lines[1:] 
+
+    for line in lines:
+        try:
+            data = json.loads(line)
+            if isinstance(data, list) and len(data) == 3 and isinstance(data[2], str):
+                text_with_escapes = data[2]
+            else:
+                text_with_escapes = line.strip()
+        except json.JSONDecodeError:
+            text_with_escapes = line.strip()
+        
+        stream.feed(text_with_escapes)
+    
+    output_lines = "\n".join(screen.display)
+
+    with open(output_file, 'w') as file:
+        file.write(output_lines)
+
 def create_text_versions():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     static_dir = os.path.join(script_dir, 'static')
@@ -46,13 +74,17 @@ def create_text_versions():
     os.makedirs(text_dir, exist_ok=True)
 
     splits_dir = os.path.join(static_dir, 'splits')
-    for file in os.listdir(splits_dir):
-        if file.endswith('.cast'):
-            file_path = os.path.join(splits_dir, file)
-            text_content = strip_ansi_sequences(file_path)
-            text_file_path = os.path.join(text_dir, file + '.txt')
-            with open(text_file_path, 'w') as f:
-                f.write(text_content)
+    for root, _, files in os.walk(splits_dir):
+        for file in files:
+            if file.endswith('.cast'):
+                input_file = os.path.join(root, file)
+                relative_path = os.path.relpath(input_file, splits_dir)
+                output_file = os.path.join(text_dir, os.path.splitext(relative_path)[0] + '.txt')
+                
+                os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                
+                print(f'Processing {input_file} to {output_file}')
+                process_with_terminal_emulator(input_file, output_file)
 
 create_text_versions()
 
@@ -424,196 +456,227 @@ COMMAND_TEMPLATE = '''
     <meta charset="UTF-8">
     <title>Command Files - {{ command }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='asciinema-player.css') }}">
-    <style>
-        body { background-color: #000000; color: white; }
-        .file-name {
-            background-color: #16213e;
-            border: 1px solid #4ecca3;
-            color: white;
-            padding: 15px;
-            text-align: center;
-            text-decoration: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 18px;
-            margin: 10px auto;
-            cursor: pointer;
-            border-radius: 5px;
-            width: 95%;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            transition: 0.3s;
-        }
-        .edit-icon, .save-btn, .exit-btn {
-            margin-left: 5px;
-            cursor: pointer;
-            visibility: hidden; 
-        }
-        .file-name:hover .edit-icon {
-            visibility: visible;
-        }
-        .favorite {
-            margin-left: 35px;
-            cursor: pointer;
-            font-size: 28px;
-        }
-        .dropdown-content {
-            display: none;
-            width: 95%;
-            margin: 10px auto;
-            background-color: #16213e;
-            color: white;
-            padding: 15px;
-            border: 1px solid #4ecca3;
-            border-radius: 5px;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            transition: 0.3s;
-        }
-        
-        .file-name, .dropdown-content {
-            box-sizing: border-box;
-            width: 95%; 
-            margin: 10px auto;
-            background-color: #16213e;
-            color: white;
-            padding: 15px;
-            border: 1px solid #4ecca3;
-            border-radius: 5px;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            transition: 0.3s;
-        }
-        
-        .file-name {
-            cursor: pointer;
-            display: block;
-            font-size: 18px;
-        }
+<style>
+    body { background-color: #000000; color: white; }
+    .file-name {
+        background-color: #16213e;
+        border: 1px solid #4ecca3;
+        color: white;
+        padding: 15px;
+        text-align: center;
+        text-decoration: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 18px;
+        margin: 10px auto;
+        cursor: pointer;
+        border-radius: 5px;
+        width: 95%;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        transition: 0.3s;
+    }
+    .edit-icon, .save-btn, .exit-btn {
+        margin-left: 5px;
+        cursor: pointer;
+        visibility: hidden; 
+    }
+    .file-name:hover .edit-icon {
+        visibility: visible;
+    }
+    .favorite {
+        margin-left: 35px;
+        cursor: pointer;
+        font-size: 28px;
+    }
+    .dropdown-content {
+        display: none;
+        width: 95%;
+        margin: 10px auto;
+        background-color: #16213e;
+        color: white;
+        padding: 15px;
+        border: 1px solid #4ecca3;
+        border-radius: 5px;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        transition: 0.3s;
+    }
 
-        .file-name:hover {
-            box-shadow: 0 8px 16px 0 rgba(0,0,0,0.3);
-        }
-        .redact-controls, .delete-controls, .edit-controls {
-            padding: 10px;
-            display: block;
-        }
-        input[type="text"], button {
-            padding: 5px;
-            margin-right: 10px;
-        }
-        button {
-            background-color: #4ecca3;
-            border: none;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #3ba888;
-        }
-        .delete-button, .edit-button {
-            background-color: #E94560;
-            padding: 10px 15px;
-            margin-top: 5px;
-        }
-        .delete-button:hover, .edit-button:hover {
-            background-color: #D8315B;
-        }
-        
-        .exit-btn:hover {
-            background-color: #E94560;
-        }
-    
-        .editing span {
-            outline: 2px solid #4ecca3;
-        }
-        .save-btn {
-            color: green;
-            font-size: 28px;
-            margin-right: 5px;
-        }
+    .file-name, .dropdown-content {
+        box-sizing: border-box;
+        width: 95%; 
+        margin: 10px auto;
+        background-color: #16213e;
+        color: white;
+        padding: 15px;
+        border: 1px solid #4ecca3;
+        border-radius: 5px;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        transition: 0.3s;
+    }
 
-        .exit-btn {
-            color: red;
-        }
-        .file-date {
-            color: white;
-            font-size: 20px;
-            margin: 20px auto 10px;
-            text-align: left;
-            width: 95%;
-        }
-        .file-actions {
-            display: flex;
-            align-items: center;
-            margin-left: 10px;
-        }
-        .combine-button {
-            background-color: #4ecca3;
-            border: none;
-            color: white;
-            padding: 10px;
-            text-align: center;
-            cursor: pointer;
-            border-radius: 5px;
-            width: 95%;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            margin: 10px auto;
-            display: block;
-        }
-        .combine-button:hover {
-            background-color: #3ba888;
-        }
-        .combine-popup {
-            display: none;
-            position: fixed;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            background-color: #16213e;
-            border: 1px solid #4ecca3;
-            padding: 20px;
-            z-index: 1000;
-            color: white;
-            width: 80%;
-            max-width: 600px;
-            border-radius: 10px;
-            max-height: 80%;
-            overflow-y: auto;
-        }
-        .combine-popup .item {
-            padding: 10px;
-            background-color: #1a1a1a;
-            margin: 5px 0;
-            border: 1px solid #4ecca3;
-            cursor: grab;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            position: relative;
-        }
+    .file-name {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+        overflow: hidden; 
+    }
 
-        .combine-popup .item .remove-btn {
-            color: red;
-            cursor: pointer;
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-        }
+    .file-name .file-text {
+        flex-grow: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-right: 10px; 
+    }
 
-        .combine-popup .generate-button {
-            background-color: #4ecca3;
-            border: none;
-            color: white;
-            padding: 10px;
-            text-align: center;
-            cursor: pointer;
-            border-radius: 5px;
-            width: 100%;
-            margin-top: 10px;
-        }
-        .combine-popup .generate-button:hover {
-            background-color: #3ba888;
-        }
-    </style>
+    .file-name i {
+        flex-shrink: 0; 
+    }
+
+    .file-name:hover {
+        box-shadow: 0 8px 16px 0 rgba(0,0,0,0.3);
+    }
+    .redact-controls, .delete-controls, .edit-controls {
+        padding: 10px;
+        display: block;
+    }
+    input[type="text"], button {
+        padding: 5px;
+        margin-right: 10px;
+    }
+    button {
+        background-color: #4ecca3;
+        border: none;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #3ba888;
+    }
+    .delete-button, .edit-button {
+        background-color: #E94560;
+        padding: 10px 15px;
+        margin-top: 5px;
+    }
+    .delete-button:hover, .edit-button:hover {
+        background-color: #D8315B;
+    }
+
+    .exit-btn:hover {
+        background-color: #E94560;
+    }
+
+    .editing span {
+        outline: 2px solid #4ecca3;
+    }
+    .save-btn {
+        color: green;
+        font-size: 28px;
+        margin-right: 5px;
+    }
+
+    .exit-btn {
+        color: red;
+    }
+    .file-date {
+        color: white;
+        font-size: 20px;
+        margin: 20px auto 10px;
+        text-align: left;
+        width: 95%;
+    }
+    .file-actions {
+        display: flex;
+        align-items: center;
+        margin-left: 10px;
+    }
+    .combine-button {
+        background-color: #4ecca3;
+        border: none;
+        color: white;
+        padding: 10px;
+        text-align: center;
+        cursor: pointer;
+        border-radius: 5px;
+        width: 95%;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        margin: 10px auto;
+        display: block;
+    }
+    .combine-button:hover {
+        background-color: #3ba888;
+    }
+    .combine-popups-container {
+        display: none;
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 80%;
+        max-width: 1200px; 
+        z-index: 1000;
+    }
+    .combine-popup {
+        background-color: #16213e;
+        border: 1px solid #4ecca3;
+        max-height: 400px;
+        padding: 20px;
+        color: white;
+        flex: 1;  
+        min-width: 300px; 
+        border-radius: 10px;
+        overflow-y: auto;
+    }
+    .combine-popup .item {
+        padding: 10px;
+        background-color: #1a1a1a;
+        margin: 5px 0;
+        border: 1px solid #4ecca3;
+        cursor: grab;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .combine-popup .item .remove-btn {
+        color: #FF0000; 
+        cursor: pointer;
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .combine-popup .item .clone-btn {
+        right: 10px;
+        color: #00FF00; 
+        position: absolute;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .combine-popup .generate-button {
+        background-color: #4ecca3;
+        border: none;
+        color: white;
+        padding: 10px;
+        text-align: center;
+        cursor: pointer;
+        border-radius: 5px;
+        width: 100%;
+        margin-top: 10px;
+    }
+    .combine-popup .generate-button:hover {
+        background-color: #3ba888;
+    }
+</style>
+
+
 </head>
 <body>
     {% set current_date = None %}
@@ -644,15 +707,21 @@ COMMAND_TEMPLATE = '''
         {% endif %}
     {% endfor %}
     {% if command == "Favorites" %}
-        <a class="combine-button" onclick="openCombinePopup()">Combine</a>
-        <div class="combine-popup" id="combinePopup">
-            <h3>Combine Favorites</h3>
-            <div id="draggableContainer"></div>
-            <div style="display: flex; align-items: center;">
-                <input type="text" id="newFileName" placeholder="New File Name" style="width: 90%;">
-                <span style="margin-left: 5px;">.cast</span>
+        <a class="combine-button" onclick="openCombinePopup()">Combine Favorites</a>
+        <div class="combine-popups-container" id="combinePopupsContainer">
+            <div class="combine-popup" id="combinePopupLeft">
+                <h3>Combine Favorites</h3>
+                <div id="draggableContainerLeft"></div>
             </div>
-            <button class="generate-button" onclick="generateCombinedFile()">Generate</button>
+            <div class="combine-popup" id="combinePopupRight">
+                <div id="draggableContainerRight"></div>
+                <div style="display: flex; align-items: center;">
+                    <input type="text" id="newFileNameRight" placeholder="New File Name" style="width: 90%;">
+                    <span style="margin-left: 5px;">.cast</span>
+                </div>
+                <button class="generate-button" onclick="generateCombinedFile()">Generate</button>
+
+            </div>
         </div>
     {% endif %}
     <script src="{{ url_for('static', filename='asciinema-player.min.js') }}"></script>
@@ -685,13 +754,21 @@ COMMAND_TEMPLATE = '''
                 }
             }
         };
+    
 
         function openCombinePopup() {
-            const popup = document.getElementById('combinePopup');
-            popup.style.display = 'block';
+            const popupsContainer = document.getElementById('combinePopupsContainer');
+            if (popupsContainer.style.display === 'block') {
+                popupsContainer.style.display = 'none';
+            } else {
+                popupsContainer.style.display = 'flex';  
+                initializePopups(); 
+            }
+        }
 
-            const draggableContainer = document.getElementById('draggableContainer');
-            draggableContainer.innerHTML = '';
+        function initializePopups() {
+            const draggableContainerLeft = document.getElementById('draggableContainerLeft');
+            draggableContainerLeft.innerHTML = '';
 
             const favoriteFiles = {{ favorites|tojson }};
             favoriteFiles.forEach(function(file) {
@@ -699,25 +776,61 @@ COMMAND_TEMPLATE = '''
                 item.classList.add('item');
                 item.textContent = file;
 
-                const removeBtn = document.createElement('span');
-                removeBtn.classList.add('remove-btn');
-                removeBtn.textContent = '×';
-                removeBtn.onclick = function() {
-                    item.remove();
+                const cloneBtn = document.createElement('span');
+                cloneBtn.classList.add('clone-btn');
+                cloneBtn.innerHTML = '&#x2b;';
+                cloneBtn.onclick = function() {
+                    cloneItem(item.textContent);
                 };
 
-                item.appendChild(removeBtn);
-                item.draggable = true;
-                draggableContainer.appendChild(item);
+                item.appendChild(cloneBtn);
+                draggableContainerLeft.appendChild(item);
             });
+        }
 
+
+        function cloneItem(fileName) {
+            const draggableContainerRight = document.getElementById('draggableContainerRight');
+            const item = document.createElement('div');
+            item.classList.add('item');
+
+            const fileNameSpan = document.createElement('span');
+            fileNameSpan.classList.add('item-text');
+            
+            fileNameSpan.textContent = fileName.replace(/\+$/, '');  
+            item.appendChild(fileNameSpan);
+
+            
+            const cloneBtn = document.createElement('span');
+            cloneBtn.classList.add('clone-btn');
+            cloneBtn.style.color = '#00FF00';
+            cloneBtn.onclick = function() {
+                cloneItem(fileName.replace(/\+$/, '')); 
+            };
+            item.appendChild(cloneBtn);
+
+            const removeBtn = document.createElement('span');
+            removeBtn.classList.add('remove-btn');
+            removeBtn.textContent = '×';
+            removeBtn.style.color = '#FF0000';
+            removeBtn.onclick = function() {
+                this.parentElement.remove();
+            };
+            item.appendChild(removeBtn);
+
+            draggableContainerRight.appendChild(item);
             makeItemsDraggable();
         }
 
+
+
+
+
+
         function makeItemsDraggable() {
-            const container = document.getElementById('draggableContainer');
+            const container = document.getElementById('draggableContainerRight');
             const items = container.getElementsByClassName('item');
-            
+
             let dragSrcEl = null;
 
             function handleDragStart(e) {
@@ -729,7 +842,7 @@ COMMAND_TEMPLATE = '''
 
             function handleDragEnd(e) {
                 this.style.opacity = '1';
-                Array.from(items).forEach(function (item) {
+                Array.from(items).forEach(function(item) {
                     item.classList.remove('over');
                 });
             }
@@ -761,7 +874,7 @@ COMMAND_TEMPLATE = '''
                 return false;
             }
 
-            Array.from(items).forEach(function (item) {
+            Array.from(items).forEach(function(item) {
                 item.addEventListener('dragstart', handleDragStart, false);
                 item.addEventListener('dragend', handleDragEnd, false);
                 item.addEventListener('dragover', handleDragOver, false);
@@ -771,12 +884,13 @@ COMMAND_TEMPLATE = '''
             });
         }
 
-        function generateCombinedFile() {
-            const container = document.getElementById('draggableContainer');
-            const items = container.getElementsByClassName('item');
-            const fileOrder = Array.from(items).map(item => item.textContent.replace('×', '').trim());
-            let newFileName = document.getElementById('newFileName').value.trim();
 
+        function generateCombinedFile() {
+            const container = document.getElementById('draggableContainerRight');
+            const items = container.getElementsByClassName('item');
+            const fileOrder = Array.from(items).map(item => item.getElementsByClassName('item-text')[0].textContent.replace(/\+$/, '').trim());
+
+            let newFileName = document.getElementById('newFileNameRight').value.trim();
             if (!newFileName.endsWith('.cast')) {
                 newFileName += '.cast';
             }
@@ -800,6 +914,7 @@ COMMAND_TEMPLATE = '''
                 alert('Error combining files.');
             });
         }
+
 
         
         function enableEdit(file, event) {
