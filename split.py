@@ -24,6 +24,31 @@ def generate_filename(command, part_index, timestamp=None):
         base_name = base_name[:250] + ".cast"
     return f"{base_name}_{part_index}.cast"
 
+def process_with_terminal_emulator(input_file):
+    screen = PatchedScreen(236, 49)
+    stream = pyte.Stream(screen)
+    screen.reset()
+
+    with open(input_file, 'r') as file:
+        lines = file.readlines()
+    
+    lines = lines[1:]
+
+    for line in lines:
+        try:
+            data = json.loads(line)
+            if isinstance(data, list) and len(data) == 3 and isinstance(data[2], str):
+                text_with_escapes = data[2]
+            else:
+                text_with_escapes = line.strip()
+        except json.JSONDecodeError:
+            text_with_escapes = line.strip()
+        
+        stream.feed(text_with_escapes)
+    
+    output_lines = "\n".join(screen.display)
+    return output_lines
+
 def split_file(input_dir, output_dir, debug=False):
     processed_files = set()
     files_to_process = [file for file in os.listdir(input_dir) if file.endswith('.cast')]
@@ -48,9 +73,7 @@ def process_cast_file(input_file_path, output_dir):
     except IOError as e:
         print(f"Error: Could not read file '{input_file_path}'. {e}")
         return
-    regex_pattern = r';[\w,\d,-,_,\.]+@[\w,-.\d]+:'
-    command_prompt_regex = r'└─\$'
-    timestamp_regex = r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{3}'
+
     screen = PatchedScreen(80, 24)
     stream = pyte.Stream(screen)
     json_line = lines[0].strip()
@@ -59,12 +82,13 @@ def process_cast_file(input_file_path, output_dir):
     except json.JSONDecodeError:
         print(f"Error: The first line is not valid JSON in file '{input_file_path}'")
         return
+
     part_index = 0
     current_file_content = []
-    plain_text_content = []
     start_time = None
     command_name = None
     timestamp = None
+
     for line in lines[1:]:
         try:
             data = json.loads(line.strip())
@@ -74,46 +98,35 @@ def process_cast_file(input_file_path, output_dir):
                 print(f"Error processing stream data in file '{input_file_path}'")
                 continue
 
-            try:
-                valid_display_lines = []
-                for display_line in screen.display:
-                    if display_line:
-                        try:
-                            _ = [wcwidth(char) for char in display_line if char]
-                            valid_display_lines.append(display_line)
-                        except Exception as e:
-                            print(f"Error processing display line in file '{input_file_path}'")
+            current_display = "\n".join(screen.display)
+            plain_text_content = extract_plain_text(screen.display)
 
-                current_display = "\n".join(valid_display_lines)
-            except IndexError as e:
-                print(f"Error processing display for file '{input_file_path}'")
-                continue
-
-            plain_text_content.append(extract_plain_text(valid_display_lines))
-            if re.search(regex_pattern, line):
+            if re.search(r';[\w,\d,-,_,\.]+@[\w,-.\d]+:', line):
                 if current_file_content and command_name:
                     if not is_trivial_command(command_name, trivial_commands):
                         filename = os.path.join(output_dir, generate_filename(clean_filename(command_name), part_index))
                         write_segment(filename, [json_line] + current_file_content, timestamp)
                         part_index += 1
                     current_file_content = []
-                    plain_text_content = []
                     command_name = None
                     timestamp = None
                 start_time = None
+            
             adjusted_line = adjust_time(line, start_time)
             if adjusted_line:
                 if start_time is None:
                     start_time = adjusted_line[0]
                 current_file_content.append(json.dumps([adjusted_line[0] - start_time, data[1], data[2]]))
-                if timestamp is None and re.search(timestamp_regex, data[2]):
-                    timestamp_match = re.search(timestamp_regex, data[2])
+                if timestamp is None and re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{3}', data[2]):
+                    timestamp_match = re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{3}', data[2])
                     timestamp = timestamp_match.group()
-            if re.search(command_prompt_regex, current_display):
+            
+            if re.search(r'└─\$|➜', current_display):
                 command_name = extract_command(current_display)
         except Exception as e:
             print(f"Error processing section of '{input_file_path}'")
             continue
+
     if current_file_content and command_name and not is_trivial_command(command_name, trivial_commands):
         filename = os.path.join(output_dir, generate_filename(clean_filename(command_name), part_index))
         write_segment(filename, [json_line] + current_file_content, timestamp)
@@ -132,7 +145,7 @@ def write_segment(filename, content, timestamp):
     if args.debug:
         print(f"Created file: {filename}")
 
-    mapping_file = os.path.join(output_dir, 'file_timestamp_mapping.json')
+    mapping_file = os.path.join(os.path.dirname(filename), 'file_timestamp_mapping.json')
     try:
         with open(mapping_file, 'r') as f:
             mapping = json.load(f)
@@ -152,26 +165,31 @@ def write_plain_text(filename, content):
 def extract_command(display):
     lines = display.split('\n')
     for line in reversed(lines):
-        if '└─$' in line:
-            command = line.split('└─$')[-1].strip()
-            
+        if '➜' in line:
+            command = line.split('➜')[-1].strip()
             parts = command.split()
             if parts:
                 if parts[0].startswith(('python3', 'sudo')):
                     full_command = " ".join(parts[1:])
-                    
+                    return full_command.replace(' ', '_')
+            return command.replace(' ', '_')
+        elif '└─$' in line:
+            command = line.split('└─$')[-1].strip()
+            parts = command.split()
+            if parts:
+                if parts[0].startswith(('python3', 'sudo')):
+                    full_command = " ".join(parts[1:])
                     return full_command.replace(' ', '_')
             return command.replace(' ', '_')
     return "initial"
 
 def clean_filename(command_name):
-    command_name = re.sub(r'(-u_\S+|-p_\S+|-H_\S+)', '', command_name)
+    command_name = re.sub(r'(-p\s+\S+)', '-p', command_name)
+    command_name = re.sub(r'(-H\s+\S+)', '-H', command_name)
     command_name = re.sub(r'[^a-zA-Z0-9_]', '_', command_name)
     command_name = command_name.lstrip('_')
     if not command_name:
         command_name = "command"
-        print(command_name)
-    
     return command_name
 
 def generate_output_filename(command, output_dir):
