@@ -83,7 +83,7 @@ def create_text_versions():
                 
                 os.makedirs(os.path.dirname(output_file), exist_ok=True)
                 
-                print(f'Processing {input_file} to {output_file}')
+                #print(f'Processing {input_file} to {output_file}')
                 process_with_terminal_emulator(input_file, output_file)
 
 create_text_versions()
