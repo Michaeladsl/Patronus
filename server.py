@@ -39,55 +39,6 @@ def strip_ansi_sequences(file_path):
         content = f.read()
         return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', content)
 
-def process_with_terminal_emulator(input_file, output_file):
-    screen = pyte.Screen(236, 49)
-    stream = pyte.Stream(screen)
-    screen.reset()
-
-    with open(input_file, 'r') as file:
-        lines = file.readlines()
-    
-    lines = lines[1:] 
-
-    for line in lines:
-        try:
-            data = json.loads(line)
-            if isinstance(data, list) and len(data) == 3 and isinstance(data[2], str):
-                text_with_escapes = data[2]
-            else:
-                text_with_escapes = line.strip()
-        except json.JSONDecodeError:
-            text_with_escapes = line.strip()
-        
-        stream.feed(text_with_escapes)
-    
-    output_lines = "\n".join(screen.display)
-
-    with open(output_file, 'w') as file:
-        file.write(output_lines)
-
-def create_text_versions():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    static_dir = os.path.join(script_dir, 'static')
-    text_dir = os.path.join(static_dir, 'text')
-
-    os.makedirs(text_dir, exist_ok=True)
-
-    splits_dir = os.path.join(static_dir, 'splits')
-    for root, _, files in os.walk(splits_dir):
-        for file in files:
-            if file.endswith('.cast'):
-                input_file = os.path.join(root, file)
-                relative_path = os.path.relpath(input_file, splits_dir)
-                output_file = os.path.join(text_dir, os.path.splitext(relative_path)[0] + '.txt')
-                
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                
-                #print(f'Processing {input_file} to {output_file}')
-                process_with_terminal_emulator(input_file, output_file)
-
-create_text_versions()
-
 
 
 def search_index(query):
