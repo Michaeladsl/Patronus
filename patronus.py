@@ -60,6 +60,7 @@ def main():
 
     remove_gitkeep_files()
     start_flask_server_in_tmux()
+    print("Server Started: http://127.0.0.1:8005")
     scripts_to_run = ['redact.py', 'split.py', 'edit.py']
     for script in scripts_to_run:
         run_script(script, [])
