@@ -10,21 +10,17 @@ def check_and_install_asciinema():
         subprocess.run(['sudo', 'apt', 'install', '-y', 'asciinema'])
         print('\033[92mAsciinema installed successfully.\033[0m')
 
+def start_flask_server_in_tmux():
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+    flask_script_path = os.path.join(script_directory, 'server.py')
+    tmux_command = f"tmux new-session -d -s flask_server 'python3 {flask_script_path}'"
+    subprocess.run(tmux_command, shell=True, check=True)
 
 def run_script(script_name, args):
     script_directory = os.path.dirname(os.path.abspath(__file__))
     full_script_path = os.path.join(script_directory, script_name)
-    
-    if script_name.endswith('.sh'):
-        if not os.access(full_script_path, os.X_OK):
-            os.chmod(full_script_path, os.stat(full_script_path).st_mode | 0o111)
-        command = [full_script_path] + args
-    else:
-        command = ['python3', full_script_path] + args
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error running {script_name}: {e}")
+    command = [full_script_path] + args if script_name.endswith('.sh') else ['python3', full_script_path] + args
+    subprocess.run(command, check=True)
 
 def remove_gitkeep_files():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,7 +29,6 @@ def remove_gitkeep_files():
         full_path = os.path.join(base_dir, dir_path, '.gitkeep')
         if os.path.exists(full_path):
             os.remove(full_path)
-            #print(f"Removed .gitkeep from {full_path}")
 
 def nuke_directories():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,19 +36,16 @@ def nuke_directories():
     for dir_path in directories:
         full_path = os.path.join(base_dir, dir_path)
         for item in os.listdir(full_path):
-            item_path = os.path.join(full_path, item)
-            if os.path.isfile(item_path) or os.path.islink(item_path):
-                os.remove(item_path)
-            elif os.path.isdir(item_path):
-                shutil.rmtree(item_path)
+            if os.path.isfile(item) or os.path.islink(item):
+                os.remove(item)
+            elif os.path.isdir(item):
+                shutil.rmtree(item)
         print(f"Nuked all contents from {full_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Patronus: A central command script for running multiple utility scripts.")
-    parser.add_argument('mode', nargs='?', choices=['on', 'off'],
-                        help='Mode for running configuration.sh. Use "on" to run configuration.sh or "off" to run configuration.sh --undo.')
+    parser.add_argument('mode', nargs='?', choices=['on', 'off'], help='Mode for running configuration.sh. Use "on" to run configuration.sh or "off" to run configuration.sh --undo.')
     parser.add_argument('--nuke', action='store_true', help='Erase all contents from the static directories')
-
     args = parser.parse_args()
 
     if args.mode:
@@ -67,8 +59,8 @@ def main():
         return 
 
     remove_gitkeep_files()
-
-    scripts_to_run = ['redact.py', 'split.py', 'edit.py', 'server.py']
+    start_flask_server_in_tmux()
+    scripts_to_run = ['redact.py', 'split.py', 'edit.py']
     for script in scripts_to_run:
         run_script(script, [])
 
