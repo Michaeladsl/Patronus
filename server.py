@@ -54,19 +54,17 @@ def search_index(query):
 
 
 def get_disk_usage():
-    partitions = psutil.disk_partitions(all=True)
-    total_free_gb = 0
-    total_recordings_size = 0
-    for partition in partitions:
-        try:
-            disk_usage = psutil.disk_usage(partition.mountpoint)
-            free_gb = disk_usage.free / (1024 ** 3)
-            total_free_gb += free_gb
-        except PermissionError:
-            pass
+    try:
+        disk_usage = psutil.disk_usage('/')
+        free_gb = disk_usage.free / (1024 ** 3)
+    except OSError as e:
+        print(f"Error retrieving disk usage for root partition: {e}")
+        free_gb = 0
 
     def get_directory_size(path):
-        total_size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, _, filenames in os.walk(path) for filename in filenames)
+        total_size = sum(os.path.getsize(os.path.join(dirpath, filename)) 
+                         for dirpath, _, filenames in os.walk(path) 
+                         for filename in filenames)
         return total_size / (1024 ** 3)
 
     recordings_size = (
@@ -75,7 +73,8 @@ def get_disk_usage():
         get_directory_size(os.path.join(app.root_path, "static", "full")) +
         get_directory_size(os.path.join(app.root_path, "static", "text"))
     )
-    return total_free_gb, recordings_size
+    return free_gb, recordings_size
+
 
 def load_favorites():
     favorites_file = os.path.join(app.root_path, 'favorites.txt')
