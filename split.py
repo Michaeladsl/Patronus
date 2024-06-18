@@ -79,6 +79,10 @@ def create_text_versions():
 
 
 
+def write_status(status):
+    with open('status_file.txt', 'w') as file:
+        file.write(status)
+
 def split_file(input_dir, output_dir, debug=False):
     mapping_file = os.path.join(output_dir, 'file_timestamp_mapping.json')
 
@@ -90,27 +94,40 @@ def split_file(input_dir, output_dir, debug=False):
 
     processed_files = set()
     files_to_process = [file for file in os.listdir(input_dir) if file.endswith('.cast')]
-    for file in tqdm(files_to_process, desc="Splitting Redacted Files"):
-        input_file_path = os.path.join(input_dir, file)
-        output_file_path = generate_output_filename(file, output_dir)
+    total_files = len(files_to_process)
+    
+    write_status("Processing")
 
-        if file in mapping and os.path.getmtime(input_file_path) == mapping[file]:
-            if debug:
-                print(f"Skipping file {file} as it hasn't changed since the last run.")
-            continue
+    try:
+        for file in tqdm(files_to_process, desc="Splitting Redacted Files"):
+            input_file_path = os.path.join(input_dir, file)
+            output_file_path = generate_output_filename(file, output_dir)
 
-        if file not in processed_files:
-            try:
-                process_cast_file(input_file_path, output_dir, mapping_file)
-                mapping[file] = os.path.getmtime(input_file_path)
-                with open(mapping_file, 'w') as f:
-                    json.dump(mapping, f, indent=4)
-            except Exception as e:
-                print(f"Error processing section of {input_file_path}: {e}")
-            processed_files.add(file)
-            if debug:
-                print(f"Processed file: {file}")
+            if file in mapping and os.path.getmtime(input_file_path) == mapping[file]:
+                if debug:
+                    print(f"Skipping file {file} as it hasn't changed since the last run.")
+                continue
 
+            if file not in processed_files:
+                try:
+                    process_cast_file(input_file_path, output_dir, mapping_file)
+                    mapping[file] = os.path.getmtime(input_file_path)
+                    with open(mapping_file, 'w') as f:
+                        json.dump(mapping, f, indent=4)
+                except Exception as e:
+                    print(f"Error processing section of {input_file_path}: {e}")
+                processed_files.add(file)
+                if debug:
+                    print(f"Processed file: {file}")
+
+            current_progress = round((len(processed_files) / total_files) * 100)
+            write_status(f"Processing {current_progress}% complete")
+
+        write_status("Complete")
+
+    except Exception as e:
+        write_status("Failed")
+        print(f"An error occurred during file splitting: {e}")
 
 def process_cast_file(input_file_path, output_dir, mapping_file):
     trivial_commands = {'cd', 'ls', 'ls -la', 'nano', 'vi', }
