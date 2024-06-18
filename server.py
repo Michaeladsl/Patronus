@@ -12,7 +12,18 @@ from tqdm import tqdm
 
 app = Flask(__name__)
 
-from flask import request
+
+status_file_path = 'status_file.txt'
+
+@app.route('/status')
+def status():
+    try:
+        with open(status_file_path, 'r') as file:
+            processing_status = file.read().strip()
+    except IOError:
+        processing_status = "Status unavailable"
+
+    return jsonify({"status": processing_status})
 
 def get_cast_files():
     static_dir = os.path.join(app.root_path, 'static', 'splits')
@@ -350,12 +361,23 @@ HTML_TEMPLATE = '''
         .search-result:hover {
             background-color: #4ecca3;
         }
+        .status-message {
+            background-color: #4ecca3;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 16px;
+            border-radius: 5px;
+            margin: 10px auto;
+            width: 95%;
+        }
     </style>
 </head>
 <body>
     <div class="disk-meter">
         Free Space: {{ free_gb|round(2) }} GB, Recordings Size: {{ recordings_size|round(2) }} GB
     </div>
+    <div id="statusMessage" class="disk-meter">Processing files, please wait...</div>
     <input type="text" id="searchInput" placeholder="Search for commands..." oninput="performSearch()">
     <div id="searchResults" class="search-results"></div>
     <a class="favorites-button" href="/favorites">Favorites</a>
@@ -393,6 +415,26 @@ HTML_TEMPLATE = '''
                 searchResults.style.display = 'none'; 
             }
         });
+        function checkStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('statusMessage').textContent = data.status;
+                    // Optionally, stop checking once processing is complete
+                    if (data.status === "Complete" || data.status === "Failed") {
+                        clearInterval(statusInterval);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                    document.getElementById('statusMessage').textContent = 'Failed to fetch status.';
+                });
+        }
+
+        var statusInterval = setInterval(checkStatus, 5000);
+
+        checkStatus();
+        
 
     </script>
 </body>
