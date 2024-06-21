@@ -2,6 +2,10 @@ import argparse
 import subprocess
 import os
 
+def make_script_executable(script_path):
+    if not os.access(script_path, os.X_OK):
+        os.chmod(script_path, os.stat(script_path).st_mode | 0o111)
+
 def check_and_install_asciinema():
     try:
         subprocess.run(['asciinema', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -19,9 +23,10 @@ def start_flask_server_in_tmux():
 def run_script(script_name, args):
     script_directory = os.path.dirname(os.path.abspath(__file__))
     full_script_path = os.path.join(script_directory, script_name)
+    make_script_executable(full_script_path)
     command = [full_script_path] + args if script_name.endswith('.sh') else ['python3', full_script_path] + args
     subprocess.run(command, check=True)
-
+    
 def remove_gitkeep_files():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     directories = ['static/redacted_full', 'static/full', 'static/splits']
