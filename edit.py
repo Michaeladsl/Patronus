@@ -111,7 +111,6 @@ class Cast:
             else:
                 return False
 
-        # Use compact encoding for the header
         header_json = json.dumps(cast.header.__dict__)
         writer.write(header_json + '\n')
 
@@ -275,8 +274,8 @@ class Transformer:
             if self.debug:
                 raise ValidationError(f"Error processing file {self.input_file}: {e}")
 
-def quantize_action(script_dir: str, debug: bool):
-    input_dir = os.path.join(script_dir, 'static', 'splits')
+def quantize_action(static_dir: str, debug: bool):
+    input_dir = os.path.join(static_dir, 'splits')
     if debug:
         print(f"Input directory: {input_dir}")
     
@@ -304,9 +303,11 @@ if __name__ == "__main__":
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     args = parser.parse_args()
 
-    script_dir = os.path.dirname(os.path.realpath(__file__))
+    home_dir = os.path.expanduser("~")
+    static_dir = os.path.join(home_dir, ".local", ".patronus", "static")
+
     try:
-        quantize_action(script_dir, args.debug)
+        quantize_action(static_dir, args.debug)
     except ValidationError as e:
         print(f"Error: {e}")
     except Exception as e:
