@@ -1,9 +1,9 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
     name='patronus',
     version='0.1.0',
-    packages=find_packages(),
+    py_modules=['patronus', 'edit', 'split', 'redact', 'server'],  # Specify each script as a module
     install_requires=[
         'Flask',
         'pyte',
@@ -13,14 +13,14 @@ setup(
     include_package_data=True,
     entry_points={
         'console_scripts': [
-            'edit=patronus.edit:main',
-            'patronus=patronus.patronus:main',
-            'redact=patronus.redact:main',
-            'server=patronus.server:main',
-            'split=patronus.split:main',
+            'edit=edit:main',
+            'patronus=patronus:main',
+            'redact=redact:main',
+            'server=server:main',
+            'split=split:main',
         ],
     },
     package_data={
-        'patronus': ['static/*', 'configure.sh'],
+        '': ['static/**/*', 'configure.sh'],  # Include non-Python data files
     },
 )
