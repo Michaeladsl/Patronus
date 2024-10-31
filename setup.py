@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 import os
 
-# Helper function to gather all files in the static directory
+# Helper function to gather all files in the static directory recursively
 def gather_static_files():
     static_files = []
     for dirpath, _, filenames in os.walk('static'):
@@ -19,7 +19,7 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,  # This ensures MANIFEST.in is used
+    include_package_data=True,  # Ensures MANIFEST.in is used
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -33,7 +33,7 @@ setup(
         '': ['configure.sh'],
     },
     data_files=[
-        ('', ['configure.sh']),  # This places configure.sh in the root of the installation
-        ('static', gather_static_files()),  # Includes all files under the static directory
+        ('', ['configure.sh']),  # Places configure.sh in the root of the installation
+        ('static', gather_static_files()),  # Recursively includes all files under the static directory
     ],
 )
