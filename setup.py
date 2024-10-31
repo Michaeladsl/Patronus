@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='patronus',
@@ -20,8 +20,7 @@ setup(
             'split=split:main',
         ],
     },
-    include_package_data=True,
     package_data={
-        '': ['configure.sh', 'static/**/*'],
+        '': ['configure.sh', 'static/**/*'],  
     },
 )
