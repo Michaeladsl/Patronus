@@ -6,13 +6,13 @@ def make_script_executable(script_path):
     if not os.access(script_path, os.X_OK):
         os.chmod(script_path, os.stat(script_path).st_mode | 0o111)
 
-def check_and_install_asciinema():
-    try:
-        subprocess.run(['asciinema', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    except FileNotFoundError:
-        print('\033[91mAsciinema is not installed. Installing...\033[0m')
-        subprocess.run(['sudo', 'apt', 'install', '-y', 'asciinema'])
-        print('\033[92mAsciinema installed successfully.\033[0m')
+#def check_and_install_asciinema():
+ #   try:
+  #      subprocess.run(['asciinema', '--version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+   # except FileNotFoundError:
+    #    print('\033[91mAsciinema is not installed. Installing...\033[0m')
+     #   subprocess.run(['sudo', 'apt', 'install', '-y', 'asciinema'])
+      #  print('\033[92mAsciinema installed successfully.\033[0m')
 
 def start_flask_server_in_tmux():
     script_directory = os.path.dirname(os.path.abspath(__file__))
