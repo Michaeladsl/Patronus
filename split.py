@@ -56,8 +56,12 @@ def process_with_terminal_emulator(input_file, output_file):
 
     return output_lines
 
-def create_text_versions(static_dir):
+
+def create_text_versions():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(script_dir, 'static')
     text_dir = os.path.join(static_dir, 'text')
+
     os.makedirs(text_dir, exist_ok=True)
 
     splits_dir = os.path.join(static_dir, 'splits')
@@ -72,9 +76,11 @@ def create_text_versions(static_dir):
 
                 process_with_terminal_emulator(input_file, output_file)
 
-def write_status(status, static_dir):
-    status_file = os.path.join(static_dir, 'status_file.txt')
-    with open(status_file, 'w') as file:
+
+
+
+def write_status(status):
+    with open('status_file.txt', 'w') as file:
         file.write(status)
 
 def split_file(input_dir, output_dir, debug=False):
@@ -90,7 +96,7 @@ def split_file(input_dir, output_dir, debug=False):
     files_to_process = [file for file in os.listdir(input_dir) if file.endswith('.cast')]
     total_files = len(files_to_process)
     
-    write_status("Processing", output_dir)
+    write_status("Processing")
 
     try:
         for file in tqdm(files_to_process, desc="Splitting Redacted Files"):
@@ -115,12 +121,12 @@ def split_file(input_dir, output_dir, debug=False):
                     print(f"Processed file: {file}")
 
             current_progress = round((len(processed_files) / total_files) * 100)
-            write_status(f"Processing {current_progress}% complete", output_dir)
+            write_status(f"Processing {current_progress}% complete")
 
-        write_status("Complete", output_dir)
+        write_status("Complete")
 
     except Exception as e:
-        write_status("Failed", output_dir)
+        write_status("Failed")
         print(f"An error occurred during file splitting: {e}")
 
 def process_cast_file(input_file_path, output_dir, mapping_file):
@@ -219,6 +225,7 @@ def update_mapping_file(file_path, mapping_file):
     with open(mapping_file, 'w') as f:
         json.dump(mapping, f, indent=4)
 
+
 def extract_plain_text(display):
     return "\n".join(line.rstrip() for line in display)
 
@@ -296,10 +303,9 @@ def is_trivial_command(command, trivial_commands):
     return command.split('_')[0] in trivial_commands
 
 if __name__ == "__main__":
-    home_dir = os.path.expanduser("~")
-    static_dir = os.path.join(home_dir, ".local", ".patronus", "static")
-    input_dir = os.path.join(static_dir, 'redacted_full')
-    output_dir = os.path.join(static_dir, 'splits')
-
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    input_dir = os.path.join(script_dir, 'static', 'redacted_full')
+    output_dir = os.path.join(script_dir, 'static', 'splits')
     split_file(input_dir, output_dir, args.debug)
-    create_text_versions(static_dir)
+    
+    create_text_versions()
