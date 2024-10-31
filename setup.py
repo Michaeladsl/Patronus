@@ -10,17 +10,17 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True, 
+    include_package_data=True,
     entry_points={
         'console_scripts': [
-            'edit=edit:main',
-            'patronus=patronus:main',
-            'redact=redact:main',
-            'server=server:main',
-            'split=split:main',
+            'edit=patronus.edit:main',
+            'patronus=patronus.patronus:main',
+            'redact=patronus.redact:main',
+            'server=patronus.server:main',
+            'split=patronus.split:main',
         ],
     },
     package_data={
-        '': ['static/*'],
+        'patronus': ['static/*', 'configure.sh'],
     },
 )
