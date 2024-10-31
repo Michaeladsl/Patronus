@@ -1,19 +1,16 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='patronus',
     version='0.1.0',
-    py_modules=['edit', 'patronus', 'redact', 'server', 'split'],
+    packages=find_packages(),
     install_requires=[
         'Flask',
         'pyte',
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,
-    data_files=[
-        ('', ['configure.sh']),
-    ],
+    include_package_data=True, 
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -22,5 +19,8 @@ setup(
             'server=server:main',
             'split=split:main',
         ],
+    },
+    package_data={
+        '': ['static/*'],
     },
 )
