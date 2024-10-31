@@ -3,6 +3,7 @@
 GREEN='\033[92m'
 RESET='\033[0m'
 
+
 undo=false
 
 while [[ "$#" -gt 0 ]]; do
@@ -20,27 +21,22 @@ if [[ "$undo" = true ]]; then
     exit 0
 fi
 
-if ! command -v asciinema &> /dev/null; then
-    echo "Asciinema is not found in your PATH. Installing it with pipx..."
-    pipx install asciinema
-    if ! command -v asciinema &> /dev/null; then
-        echo "Asciinema could not be added to your PATH. Please ensure ~/.local/bin is in your PATH."
-        echo "Add this line to your ~/.bashrc or ~/.zshrc and source it:"
-        echo 'export PATH="$HOME/.local/bin:$PATH"'
-        exit 1
-    fi
+if ! command -v asciinema &> /dev/null
+then
+    echo "Asciinema is not installed. Installing now..."
+    sudo apt update && sudo apt install asciinema -y
 fi
 
-HOME_DIR="$HOME"
-PATRONUS_DIR="${HOME_DIR}/.local/.patronus"
-FULL_DIR="${PATRONUS_DIR}/static/full"
+CURRENT_DIR=$(pwd)
+FULL_DIR="${CURRENT_DIR}/static/full"
 mkdir -p "${FULL_DIR}"
 echo "Recording directory set at ${FULL_DIR}"
 
 ZSHRC="$HOME/.zshrc"
 RECORD_CMD="asciinema rec \$FULL_DIR/\$(date +%Y-%m-%d_%H-%M-%S).cast"
 
-if ! grep -q "ASC_REC_ACTIVE" "${ZSHRC}"; then
+if ! grep -q "ASC_REC_ACTIVE" "${ZSHRC}"
+then
     echo "Adding asciinema setup to ${ZSHRC}"
     cat <<EOF >> "${ZSHRC}"
 
