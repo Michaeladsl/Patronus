@@ -21,6 +21,6 @@ setup(
         ],
     },
     package_data={
-        '': ['static/**/*', 'configure.sh'],  # Include non-Python data files
+    '': ['configure.sh', 'static/**/*'],
     },
 )
