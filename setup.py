@@ -10,10 +10,10 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,  
-    package_data={
-        '': ['configure.sh'], 
-    },
+    include_package_data=True,
+    data_files=[
+        ('', ['configure.sh']),
+    ],
     entry_points={
         'console_scripts': [
             'edit=edit:main',
