@@ -3,14 +3,14 @@ from setuptools import setup
 setup(
     name='patronus',
     version='0.1.0',
-    py_modules=['patronus', 'edit', 'split', 'redact', 'server'],  # Specify each script as a module
+    py_modules=['patronus', 'edit', 'split', 'redact', 'server'],
     install_requires=[
         'Flask',
         'pyte',
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,
+    include_package_data=True,  # This enables inclusion of files listed in MANIFEST.in
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -21,6 +21,6 @@ setup(
         ],
     },
     package_data={
-    '': ['configure.sh', 'static/**/*'],
+        '': ['configure.sh', 'static/**/*'],
     },
 )
