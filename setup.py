@@ -1,12 +1,13 @@
 from setuptools import setup, find_packages
 import os
 
-# Helper function to gather all files in the static directory recursively
+# Helper function to gather all files within the static directory and subdirectories
 def gather_static_files():
     static_files = []
     for dirpath, _, filenames in os.walk('static'):
         for filename in filenames:
-            static_files.append(os.path.join(dirpath, filename))
+            file_path = os.path.join(dirpath, filename)
+            static_files.append(file_path)
     return static_files
 
 setup(
@@ -19,7 +20,7 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,  # Ensures MANIFEST.in is used
+    include_package_data=True,  # Uses MANIFEST.in to include data files
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -33,7 +34,7 @@ setup(
         '': ['configure.sh'],
     },
     data_files=[
-        ('', ['configure.sh']),  # Places configure.sh in the root of the installation
-        ('static', gather_static_files()),  # Recursively includes all files under the static directory
+        ('', ['configure.sh']),  # Ensures configure.sh is at the root
+        ('static', gather_static_files()),  # Includes all files in the static directory and subdirectories
     ],
 )
