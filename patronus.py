@@ -56,7 +56,7 @@ def main():
     if args.mode:
         if args.mode == 'on':
             #check_and_install_asciinema()
-        run_script('configure.sh', ['--undo'] if args.mode == 'off' else [])
+            run_script('configure.sh', ['--undo'] if args.mode == 'off' else [])
         return
 
     if args.nuke:
