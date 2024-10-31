@@ -10,7 +10,7 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,  # This ensures MANIFEST.in is used
+    include_package_data=True, 
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -24,9 +24,7 @@ setup(
         '': ['configure.sh', 'static/**/*'],
     },
     data_files=[
-        ('', ['configure.sh']),  # This places configure.sh in the root of the installation
-    ],
-    data_files=[
+        ('', ['configure.sh']), 
         ('static', ['static/**/*']),
     ],
 )
