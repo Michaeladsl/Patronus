@@ -21,6 +21,6 @@ setup(
         ],
     },
     package_data={
-        '': ['configure.sh', 'static/**/*'],
+        '': ['configure.sh'],
     },
 )
