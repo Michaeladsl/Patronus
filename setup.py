@@ -26,4 +26,7 @@ setup(
     data_files=[
         ('', ['configure.sh']),  # This places configure.sh in the root of the installation
     ],
+    data_files=[
+        ('static', ['static/**/*']),
+    ],
 )
