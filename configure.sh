@@ -31,8 +31,9 @@ if ! command -v asciinema &> /dev/null; then
     fi
 fi
 
-CURRENT_DIR=$(pwd)
-FULL_DIR="${CURRENT_DIR}/static/full"
+HOME_DIR="$HOME"
+PATRONUS_DIR="${HOME_DIR}/.local/.patronus"
+FULL_DIR="${PATRONUS_DIR}/static/full"
 mkdir -p "${FULL_DIR}"
 echo "Recording directory set at ${FULL_DIR}"
 
