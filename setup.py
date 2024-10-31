@@ -10,7 +10,7 @@ setup(
         'tqdm',
         'asciinema',
     ],
-    include_package_data=True,  # This enables inclusion of files listed in MANIFEST.in
+    include_package_data=True, 
     entry_points={
         'console_scripts': [
             'edit=edit:main',
@@ -20,7 +20,8 @@ setup(
             'split=split:main',
         ],
     },
+    include_package_data=True,
     package_data={
-        '': ['configure.sh'],
+        '': ['configure.sh', 'static/**/*'],
     },
 )
