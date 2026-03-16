@@ -9,11 +9,11 @@ import pyte
 from tqdm import tqdm
 
 
-
 app = Flask(__name__)
 
-
-status_file_path = 'status_file.txt'
+# FIX: original used bare 'status_file.txt' — breaks if Flask isn't launched
+# from the project directory. Use app.root_path to make it absolute.
+status_file_path = os.path.join(app.root_path, 'status_file.txt')
 
 @app.route('/status')
 def status():
@@ -22,19 +22,25 @@ def status():
             processing_status = file.read().strip()
     except IOError:
         processing_status = "Status unavailable"
-
     return jsonify({"status": processing_status})
 
 def get_cast_files():
     static_dir = os.path.join(app.root_path, 'static', 'splits')
+
+    # FIX: crashes on fresh install before split.py has run
+    if not os.path.exists(static_dir):
+        return [], {}
+
     files = [f for f in os.listdir(static_dir) if f.endswith('.cast')]
-    
+
     mappings_file = os.path.join(static_dir, 'file_timestamp_mapping.json')
     timestamps = {}
-    with open(mappings_file, 'r') as f:
-        mappings = json.load(f)
-        timestamps = {file_path: timestamp for file_path, timestamp in mappings.items() if timestamp is not None}
-    
+    # FIX: crashes if mapping file doesn't exist yet
+    if os.path.exists(mappings_file):
+        with open(mappings_file, 'r') as f:
+            mappings = json.load(f)
+            timestamps = {fp: ts for fp, ts in mappings.items() if ts is not None}
+
     if request.path.startswith('/command/'):
         sorted_files = sorted(files, key=lambda x: timestamps.get(os.path.join(static_dir, x), ''))
     else:
@@ -48,19 +54,20 @@ def get_cast_files():
 def strip_ansi_sequences(file_path):
     with open(file_path, 'r') as f:
         content = f.read()
-        return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', content)
-
+    return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', content)
 
 
 def search_index(query):
     text_dir = os.path.join(app.root_path, 'static', 'text')
     results = []
-    for text_file in os.listdir(text_dir):
-        if text_file.endswith('.txt'):
-            with open(os.path.join(text_dir, text_file), 'r') as f:
-                content = f.read()
-                if query.lower() in content.lower():
-                    results.append(text_file.replace('.txt', ''))
+    # FIX: crashes if text dir doesn't exist yet
+    if os.path.exists(text_dir):
+        for text_file in os.listdir(text_dir):
+            if text_file.endswith('.txt'):
+                with open(os.path.join(text_dir, text_file), 'r') as f:
+                    content = f.read()
+                    if query.lower() in content.lower():
+                        results.append(text_file.replace('.txt', ''))
     return results
 
 
@@ -69,20 +76,26 @@ def get_disk_usage():
         disk_usage = psutil.disk_usage('/')
         free_gb = disk_usage.free / (1024 ** 3)
     except OSError as e:
-        print(f"Error retrieving disk usage for root partition: {e}")
+        print(f"Error retrieving disk usage: {e}")
         free_gb = 0
 
     def get_directory_size(path):
-        total_size = sum(os.path.getsize(os.path.join(dirpath, filename)) 
-                         for dirpath, _, filenames in os.walk(path) 
-                         for filename in filenames)
+        # FIX: crashes if directory doesn't exist yet
+        if not os.path.exists(path):
+            return 0
+        total_size = sum(
+            os.path.getsize(os.path.join(dirpath, filename))
+            for dirpath, _, filenames in os.walk(path)
+            for filename in filenames
+        )
         return total_size / (1024 ** 3)
 
+    root = app.root_path
     recordings_size = (
-        get_directory_size(os.path.join(app.root_path, "static", "splits")) +
-        get_directory_size(os.path.join(app.root_path, "static", "redacted_full")) +
-        get_directory_size(os.path.join(app.root_path, "static", "full")) +
-        get_directory_size(os.path.join(app.root_path, "static", "text"))
+        get_directory_size(os.path.join(root, "static", "splits")) +
+        get_directory_size(os.path.join(root, "static", "redacted_full")) +
+        get_directory_size(os.path.join(root, "static", "full")) +
+        get_directory_size(os.path.join(root, "static", "text"))
     )
     return free_gb, recordings_size
 
@@ -94,7 +107,8 @@ def load_favorites():
         with open(favorites_file, 'r') as f:
             for line in f:
                 filename = line.strip()
-                favorites[filename] = True
+                if filename:
+                    favorites[filename] = True
     return favorites
 
 def save_favorites(favorites):
@@ -108,7 +122,7 @@ favorites = load_favorites()
 
 def combine_cast_files(input_files, output_file, debug=False):
     combined_events = []
-    start_time_offset = 0.0 
+    start_time_offset = 0.0
     header = None
 
     for file in tqdm(input_files, desc="Combining CAST Files"):
@@ -125,8 +139,6 @@ def combine_cast_files(input_files, output_file, debug=False):
 
             if len(combined_events) > 1:
                 last_event = json.loads(combined_events[-1])
-                if debug:
-                    print(f"Last event: {last_event}")
                 if not isinstance(last_event, list) or len(last_event) < 1:
                     raise ValueError("Last event is not in the expected format.")
                 last_event_time = float(last_event[0])
@@ -134,15 +146,8 @@ def combine_cast_files(input_files, output_file, debug=False):
                 last_event_time = 0.0
 
             first_event_time = float(events[0][0])
-            if debug:
-                print(f"First event time: {first_event_time}")
-                print(f"Start time offset before adjustment: {start_time_offset}")
-            
             if last_event_time > 0.0:
                 start_time_offset += last_event_time - first_event_time
-
-            if debug:
-                print(f"Start time offset after adjustment: {start_time_offset}")
 
             for event in events:
                 event_time = float(event[0]) + start_time_offset
@@ -155,20 +160,17 @@ def combine_cast_files(input_files, output_file, debug=False):
     if debug:
         print(f"Combined {len(input_files)} files into {output_file}")
 
+
 @app.route('/combine_files', methods=['POST'])
 def combine_files():
     data = request.json
     files = data['files']
     new_file_name = data['new_file_name']
-
     if not new_file_name.endswith('.cast'):
         new_file_name += '.cast'
-
     combine_cast_files(files, new_file_name, debug=True)
-
     favorites[new_file_name] = True
     save_favorites(favorites)
-
     return jsonify(success=True)
 
 
@@ -176,13 +178,14 @@ def combine_files():
 def index():
     tools, files_dict = get_cast_files()
     free_gb, recordings_size = get_disk_usage()
-    return render_template_string(HTML_TEMPLATE, tools=tools, files_dict=files_dict, free_gb=free_gb, recordings_size=recordings_size, favorites=favorites)
+    return render_template_string(HTML_TEMPLATE, tools=tools, files_dict=files_dict,
+                                  free_gb=free_gb, recordings_size=recordings_size, favorites=favorites)
 
 @app.route('/command/<command>')
 def command_page(command):
     _, files_dict = get_cast_files()
     command_files = files_dict.get(command, [])
-    
+
     current_date = None
     files_with_dates = []
 
@@ -190,8 +193,8 @@ def command_page(command):
         file_path = os.path.join(app.root_path, 'static', 'splits', file)
         timestamp = get_timestamp(file_path)
         date = timestamp.split()[0] if timestamp else None
-        
-        if date != current_date:
+
+        if date and date != current_date:
             current_date = date
             files_with_dates.append(date)
 
@@ -199,21 +202,22 @@ def command_page(command):
 
     return render_template_string(COMMAND_TEMPLATE, command=command, command_files=files_with_dates, favorites=favorites)
 
+
 def get_timestamp(file_path):
     mappings_file = os.path.join(app.root_path, 'static', 'splits', 'file_timestamp_mapping.json')
+    # FIX: crashes with FileNotFoundError if mapping file doesn't exist yet
+    if not os.path.exists(mappings_file):
+        return None
     with open(mappings_file, 'r') as f:
         mappings = json.load(f)
-        timestamp = mappings.get(file_path)
-        return timestamp
-
+        return mappings.get(file_path)
 
 
 @app.route('/favorites')
 def favorites_page():
     _, files_dict = get_cast_files()
-    favorites_files = [file for file in favorites if file in sum(files_dict.values(), [])]
+    favorites_files = [f for f in favorites if f in sum(files_dict.values(), [])]
     return render_template_string(COMMAND_TEMPLATE, command="Favorites", command_files=favorites_files, favorites=favorites_files)
-
 
 
 @app.route('/redact', methods=['POST'])
@@ -221,8 +225,12 @@ def redact_text():
     data = request.json
     word = data['word']
     file_to_redact = os.path.join(app.root_path, 'static', 'splits', data['file'])
-    subprocess.run(['python3', 'redact.py', '-w', word, '-f', file_to_redact])
+    # FIX: original called `python3 redact.py` as a bare name — only works if
+    # CWD happens to be the project directory. Use absolute path instead.
+    redact_script = os.path.join(app.root_path, 'redact.py')
+    subprocess.run(['python3', redact_script, '-w', word, '-f', file_to_redact], check=True)
     return jsonify(success=True)
+
 
 @app.route('/delete', methods=['POST'])
 def delete_file():
@@ -234,18 +242,19 @@ def delete_file():
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
 
+
 @app.route('/edit', methods=['POST'])
 def edit_file_name():
     data = request.get_json()
-    old_file_name = data['old_file']
-    new_file_name = data['new_file']
-    old_file_path = os.path.join(app.root_path, 'static', 'splits', old_file_name)
-    new_file_path = os.path.join(app.root_path, 'static', 'splits', new_file_name)
+    splits = os.path.join(app.root_path, 'static', 'splits')
+    old_path = os.path.join(splits, data['old_file'])
+    new_path = os.path.join(splits, data['new_file'])
     try:
-        os.rename(old_file_path, new_file_path)
+        os.rename(old_path, new_path)
         return jsonify(success=True)
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
+
 
 @app.route('/toggle_favorite', methods=['POST'])
 def toggle_favorite():
@@ -258,6 +267,7 @@ def toggle_favorite():
     save_favorites(favorites)
     return jsonify(success=True)
 
+
 @app.route('/search')
 def search_files():
     query = request.args.get('q', '')
@@ -265,340 +275,426 @@ def search_files():
     return jsonify(results)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  HTML TEMPLATES
+# ─────────────────────────────────────────────────────────────────────────────
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Command Selection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patronus</title>
     <style>
-        body { background-color: #000000; color: white; }
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            background-color: #000000;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0 8px 24px;
+        }
+
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 95%;
+            margin: 12px auto 8px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .disk-meter {
+            background-color: rgba(22, 33, 62, 0.8);
+            color: #aac4b8;
+            padding: 8px 14px;
+            border-radius: 5px;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        /* FIX: hidden by default; only shown while actually processing */
+        #statusMessage {
+            display: none;
+            background-color: rgba(22, 33, 62, 0.9);
+            border: 1px solid #4ecca3;
+            color: #4ecca3;
+            padding: 8px 14px;
+            text-align: center;
+            font-size: 13px;
+            border-radius: 5px;
+            margin: 0 auto 10px;
+            width: 95%;
+            transition: opacity 0.4s;
+        }
+        #statusMessage.visible { display: block; }
+        #statusMessage.done { border-color: #3ba888; color: #3ba888; }
+        #statusMessage.failed { border-color: #E94560; color: #E94560; }
+
+        .search-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+            max-width: 500px;
+        }
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #4ecca3;
+            font-size: 15px;
+            pointer-events: none;
+        }
+        input[type="text"]#searchInput {
+            padding: 8px 10px 8px 34px;
+            width: 100%;
+            background-color: #16213e;
+            border: 1px solid #4ecca3;
+            color: white;
+            font-size: 15px;
+            border-radius: 5px;
+            outline: none;
+        }
+        input[type="text"]#searchInput:focus {
+            border-color: #6edfc0;
+            box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.2);
+        }
+        .search-results {
+            background-color: #1a2540;
+            border: 1px solid #4ecca3;
+            color: white;
+            position: absolute;
+            width: 100%;
+            display: none;
+            z-index: 1000;
+            border-radius: 0 0 5px 5px;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+        .search-result {
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(78, 204, 163, 0.25);
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .search-result:last-child { border-bottom: none; }
+        .search-result:hover { background-color: #4ecca3; color: #000; }
+
         .button {
             background-color: #16213e;
             border: 1px solid #4ecca3;
             color: white;
             padding: 15px;
             text-align: center;
-            text-decoration: none;
             display: block;
-            font-size: 18px;
-            margin: 10px auto; 
+            font-size: 17px;
+            margin: 8px auto;
             cursor: pointer;
             border-radius: 5px;
             width: 95%;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            transition: 0.3s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: box-shadow 0.2s, background-color 0.2s;
         }
-        .button:hover {
-            box-shadow: 0 8px 16px 0 rgba(0,0,0,0.3);
-        }
-        .disk-meter {
-            background-color: rgba(22, 33, 62, 0.8);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 14px;
-            margin: 0 auto 20px;
-            width: 95%;
-            text-align: center;
-        }
-        .favorite {
-            float: right;
-            margin-right: 20px;
-            cursor: pointer;
-            font-size: 24px;
-        }
+        .button:hover { background-color: #1c2a52; box-shadow: 0 8px 16px rgba(0,0,0,0.3); }
+
         .favorites-button {
             background-color: #4ecca3;
-            border: none;
             color: white;
-            padding: 10px;
+            padding: 12px;
             text-align: center;
             text-decoration: none;
             display: block;
-            font-size: 18px;
-            margin: 10px auto; 
+            font-size: 16px;
+            margin: 8px auto;
             cursor: pointer;
             border-radius: 5px;
             width: 95%;
-            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-            transition: 0.3s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: background-color 0.2s;
+            font-weight: 600;
         }
-        .favorites-button:hover {
-            background-color: #3ba888;
-        }
-        body { background-color: #000000; color: white; }
-        input[type="text"] {
-            padding: 8px;
-            width: 94%; 
-            margin: 10px auto;
-            display: block;
-            background-color: #16213e;
-            border: 1px solid #4ecca3;
-            color: white;
-            font-size: 16px;
-            border-radius: 5px;
-        }
-        .search-results {
-            background-color: #333;
-            border: 1px solid #4ecca3;
-            color: white;
-            position: center;
-            width: 94%;
-            margin: 0 auto;
-            display: none;
-            z-index: 1000;
-        }
-        .search-result {
-            padding: 10px;
+        .favorites-button:hover { background-color: #3ba888; }
+
+        .empty-state {
             text-align: center;
-            border-bottom: 1px solid #4ecca3;
-            cursor: pointer;
+            padding: 60px 20px;
+            color: #4a6e62;
         }
-        .search-result:last-child {
-            border-bottom: none;
-        }
-        .search-result:hover {
-            background-color: #4ecca3;
-        }
-        .status-message {
-            background-color: #4ecca3;
-            color: white;
-            padding: 10px;
-            text-align: center;
-            font-size: 16px;
-            border-radius: 5px;
-            margin: 10px auto;
-            width: 95%;
+        .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-state h2 { color: #4ecca3; margin: 0 0 10px; font-size: 20px; }
+        .empty-state p { font-size: 14px; line-height: 1.6; max-width: 380px; margin: 0 auto; }
+        .empty-state code {
+            background: #16213e;
+            border: 1px solid #4ecca3;
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-family: monospace;
+            color: #4ecca3;
         }
     </style>
 </head>
 <body>
-    <div class="disk-meter">
-        Free Space: {{ free_gb|round(2) }} GB, Recordings Size: {{ recordings_size|round(2) }} GB
+    <div class="top-bar">
+        <div class="disk-meter">
+            💾 Free: {{ free_gb|round(2) }} GB &nbsp;|&nbsp; Recordings: {{ recordings_size|round(2) }} GB
+        </div>
+        <div class="search-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" placeholder="Search recordings…" oninput="performSearch()" autocomplete="off">
+            <div id="searchResults" class="search-results"></div>
+        </div>
     </div>
-    <div id="statusMessage" class="disk-meter">Processing files, please wait...</div>
-    <input type="text" id="searchInput" placeholder="Search for commands..." oninput="performSearch()">
-    <div id="searchResults" class="search-results"></div>
-    <a class="favorites-button" href="/favorites">Favorites</a>
-    {% for tool, count in files_dict.items() %}
-    <div class="button" onclick="window.location.href='/command/{{ tool }}'">{{ tool }} ({{ count|length }})</div>
-    {% endfor %}
+
+    <div id="statusMessage"></div>
+
+    <a class="favorites-button" href="/favorites">⭐ Favorites</a>
+
+    {% if files_dict %}
+        {% for tool, count in files_dict.items() %}
+        <div class="button" onclick="window.location.href='/command/{{ tool }}'">
+            {{ tool }} <span style="color:#4ecca3;font-size:14px;">({{ count|length }})</span>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <div class="icon">📂</div>
+            <h2>No recordings yet</h2>
+            <p>Start a recording session with <code>python3 patronus.py on</code>, run some commands, then stop with <code>python3 patronus.py off</code>.<br><br>When you're done, run <code>python3 patronus.py</code> to process and view your recordings here.</p>
+        </div>
+    {% endif %}
+
     <script>
         function performSearch() {
             let input = document.getElementById('searchInput');
             let dropdown = document.getElementById('searchResults');
-
-            if (input.value.length < 1) {
-                dropdown.style.display = 'none';
-                return;
-            }
-
+            if (input.value.length < 1) { dropdown.style.display = 'none'; return; }
             fetch(`/search?q=${encodeURIComponent(input.value)}`)
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 if (data.length) {
-                    dropdown.innerHTML = data.map(item => `<div class="search-result" onclick="location.href='/command/${item.split('_')[0]}?open=${item}'">${item}</div>`).join('');
+                    dropdown.innerHTML = data.map(item =>
+                        `<div class="search-result" onclick="location.href='/command/${item.split('_')[0]}?open=${item}'">${item}</div>`
+                    ).join('');
                     dropdown.style.display = 'block';
                 } else {
-                    dropdown.innerHTML = '<div class="search-result">No results found</div>';
+                    dropdown.innerHTML = '<div class="search-result" style="color:#888;">No results found</div>';
                     dropdown.style.display = 'block';
                 }
             })
-            .catch(error => console.error('Error:', error));
+            .catch(err => console.error('Search error:', err));
         }
-        document.addEventListener('click', function(event) {
-            var searchInput = document.getElementById('searchInput');
-            var searchResults = document.getElementById('searchResults');
 
-            if (event.target !== searchInput && !searchResults.contains(event.target)) {
-                searchResults.style.display = 'none'; 
-            }
+        document.addEventListener('click', function(e) {
+            const si = document.getElementById('searchInput');
+            const sr = document.getElementById('searchResults');
+            if (e.target !== si && !sr.contains(e.target)) sr.style.display = 'none';
         });
+
+        // FIX: status bar hidden by default, only visible while processing
         function checkStatus() {
             fetch('/status')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('statusMessage').textContent = data.status;
-                    // Optionally, stop checking once processing is complete
-                    if (data.status === "Complete" || data.status === "Failed") {
+            .then(r => r.json())
+            .then(data => {
+                const el = document.getElementById('statusMessage');
+                const s = data.status;
+                if (s && s !== 'Status unavailable') {
+                    el.textContent = s;
+                    el.classList.add('visible');
+                    el.classList.toggle('done', s === 'Complete');
+                    el.classList.toggle('failed', s === 'Failed');
+                    if (s === 'Complete' || s === 'Failed') {
                         clearInterval(statusInterval);
+                        setTimeout(() => el.classList.remove('visible'), 4000);
                     }
-                })
-                .catch(error => {
-                    console.error('Error fetching status:', error);
-                    document.getElementById('statusMessage').textContent = 'Failed to fetch status.';
-                });
+                }
+            })
+            .catch(err => console.error('Status error:', err));
         }
 
         var statusInterval = setInterval(checkStatus, 5000);
-
         checkStatus();
-        
-
     </script>
 </body>
 </html>
 '''
+
 
 COMMAND_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Command Files - {{ command }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ command }} — Patronus</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='asciinema-player.css') }}">
 <style>
-    body { background-color: #000000; color: white; }
-    .file-name {
-        background-color: #16213e;
-        border: 1px solid #4ecca3;
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+        background-color: #000000;
         color: white;
-        padding: 15px;
-        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 0 8px 32px;
+    }
+
+    .back-link {
+        display: inline-block;
+        color: #4ecca3;
         text-decoration: none;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 18px;
-        margin: 10px auto;
-        cursor: pointer;
-        border-radius: 5px;
-        width: 95%;
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-        transition: 0.3s;
+        font-size: 14px;
+        margin: 14px 0 4px 2.5%;
+        opacity: 0.8;
+        transition: opacity 0.2s;
     }
-    .edit-icon, .save-btn, .exit-btn {
-        margin-left: 5px;
-        cursor: pointer;
-        visibility: hidden; 
-    }
-    .file-name:hover .edit-icon {
-        visibility: visible;
-    }
-    .favorite {
-        margin-left: 35px;
-        cursor: pointer;
-        font-size: 28px;
-    }
-    .dropdown-content {
-        display: none;
-        width: 95%;
-        margin: 10px auto;
-        background-color: #16213e;
-        color: white;
-        padding: 15px;
-        border: 1px solid #4ecca3;
-        border-radius: 5px;
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-        transition: 0.3s;
-    }
+    .back-link:hover { opacity: 1; }
 
-    .file-name, .dropdown-content {
-        box-sizing: border-box;
-        width: 95%; 
-        margin: 10px auto;
-        background-color: #16213e;
-        color: white;
-        padding: 15px;
-        border: 1px solid #4ecca3;
-        border-radius: 5px;
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-        transition: 0.3s;
+    .page-title {
+        font-size: 22px;
+        font-weight: 600;
+        color: #4ecca3;
+        width: 95%;
+        margin: 6px auto 14px;
+        letter-spacing: 0.02em;
     }
 
     .file-name {
+        background-color: #16213e;
+        border: 1px solid #4ecca3;
+        color: white;
+        padding: 13px 15px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 15px;
-        overflow: hidden; 
+        font-size: 16px;
+        margin: 8px auto;
+        cursor: pointer;
+        border-radius: 5px;
+        width: 95%;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        transition: background-color 0.2s, box-shadow 0.2s;
     }
+    .file-name:hover { background-color: #1c2a52; box-shadow: 0 8px 16px rgba(0,0,0,0.3); }
 
-    .file-name .file-text {
+    .file-text {
         flex-grow: 1;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        margin-right: 10px; 
-    }
-
-    .file-name i {
-        flex-shrink: 0; 
-    }
-
-    .file-name:hover {
-        box-shadow: 0 8px 16px 0 rgba(0,0,0,0.3);
-    }
-    .redact-controls, .delete-controls, .edit-controls {
-        padding: 10px;
-        display: block;
-    }
-    input[type="text"], button {
-        padding: 5px;
         margin-right: 10px;
+    }
+    .edit-icon, .save-btn, .exit-btn {
+        margin-left: 5px;
+        cursor: pointer;
+        visibility: hidden;
+        flex-shrink: 0;
+    }
+    .file-name:hover .edit-icon { visibility: visible; }
+    .save-btn { color: #4ecca3; font-size: 22px; }
+    .exit-btn { color: #E94560; }
+    .favorite { margin-left: 20px; cursor: pointer; font-size: 22px; flex-shrink: 0; }
+
+    .dropdown-content {
+        display: none;
+        width: 95%;
+        margin: -4px auto 8px;
+        background-color: #16213e;
+        color: white;
+        padding: 15px;
+        border: 1px solid #4ecca3;
+        border-top: none;
+        border-radius: 0 0 5px 5px;
+        box-shadow: 0 6px 12px rgba(0,0,0,0.25);
+    }
+    .redact-controls, .delete-controls {
+        padding: 6px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .redact-controls input[type="text"] {
+        flex: 1;
+        padding: 7px 10px;
+        background-color: #0d1526;
+        border: 1px solid #4ecca3;
+        color: white;
+        font-size: 14px;
+        border-radius: 4px;
+        outline: none;
+    }
+    .redact-controls input[type="text"]:focus {
+        border-color: #6edfc0;
+        box-shadow: 0 0 0 2px rgba(78,204,163,0.2);
     }
     button {
         background-color: #4ecca3;
         border: none;
+        color: #000;
+        padding: 7px 14px;
         cursor: pointer;
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: 600;
+        transition: background-color 0.2s;
     }
-    button:hover {
-        background-color: #3ba888;
-    }
-    .delete-button, .edit-button {
-        background-color: #E94560;
-        padding: 10px 15px;
-        margin-top: 5px;
-    }
-    .delete-button:hover, .edit-button:hover {
-        background-color: #D8315B;
-    }
+    button:hover { background-color: #3ba888; }
+    .delete-button { background-color: #E94560; color: white; padding: 8px 16px; }
+    .delete-button:hover { background-color: #c73350; }
 
-    .exit-btn:hover {
-        background-color: #E94560;
-    }
-
-    .editing span {
-        outline: 2px solid #4ecca3;
-    }
-    .save-btn {
-        color: green;
-        font-size: 28px;
-        margin-right: 5px;
-    }
-
-    .exit-btn {
-        color: red;
-    }
     .file-date {
-        color: white;
-        font-size: 20px;
-        margin: 20px auto 10px;
-        text-align: left;
+        color: #4ecca3;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 20px auto 4px;
         width: 95%;
+        opacity: 0.7;
+        border-bottom: 1px solid rgba(78,204,163,0.2);
+        padding-bottom: 4px;
     }
-    .file-actions {
-        display: flex;
-        align-items: center;
-        margin-left: 10px;
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #4a6e62;
     }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-state h2 { color: #4ecca3; margin: 0 0 10px; font-size: 20px; }
+    .empty-state p { font-size: 14px; line-height: 1.6; max-width: 380px; margin: 0 auto; }
+
     .combine-button {
         background-color: #4ecca3;
-        border: none;
-        color: white;
-        padding: 10px;
+        color: #000;
+        padding: 11px;
         text-align: center;
         cursor: pointer;
         border-radius: 5px;
         width: 95%;
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-        margin: 10px auto;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        margin: 12px auto;
         display: block;
+        font-size: 15px;
+        font-weight: 600;
+        border: none;
+        transition: background-color 0.2s;
     }
-    .combine-button:hover {
-        background-color: #3ba888;
+    .combine-button:hover { background-color: #3ba888; }
+
+    /* FIX: Added proper modal backdrop */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 999;
+        backdrop-filter: blur(2px);
     }
+    .modal-overlay.active { display: block; }
+
     .combine-popups-container {
         display: none;
         position: fixed;
@@ -606,22 +702,26 @@ COMMAND_TEMPLATE = '''
         top: 50%;
         transform: translate(-50%, -50%);
         width: 80%;
-        max-width: 1200px; 
+        max-width: 1100px;
         z-index: 1000;
+        gap: 16px;
     }
+    .combine-popups-container.active { display: flex; }
+
     .combine-popup {
         background-color: #16213e;
         border: 1px solid #4ecca3;
-        max-height: 400px;
+        max-height: 450px;
         padding: 20px;
         color: white;
-        flex: 1;  
-        min-width: 300px; 
+        flex: 1;
+        min-width: 280px;
         border-radius: 10px;
         overflow-y: auto;
     }
+    .combine-popup h3 { margin: 0 0 12px; color: #4ecca3; font-size: 16px; }
     .combine-popup .item {
-        padding: 10px;
+        padding: 10px 40px 10px 10px;
         background-color: #1a1a1a;
         margin: 5px 0;
         border: 1px solid #4ecca3;
@@ -630,108 +730,123 @@ COMMAND_TEMPLATE = '''
         text-overflow: ellipsis;
         white-space: nowrap;
         position: relative;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        border-radius: 4px;
+        font-size: 13px;
     }
-
     .combine-popup .item .remove-btn {
-        color: #FF0000; 
+        color: #FF0000;
         cursor: pointer;
         position: absolute;
         right: 10px;
         top: 50%;
         transform: translateY(-50%);
+        font-weight: bold;
     }
-
     .combine-popup .item .clone-btn {
         right: 10px;
-        color: #00FF00; 
+        color: #00FF00;
         position: absolute;
         font-weight: bold;
         cursor: pointer;
     }
-
     .combine-popup .generate-button {
         background-color: #4ecca3;
         border: none;
-        color: white;
+        color: #000;
         padding: 10px;
-        text-align: center;
         cursor: pointer;
         border-radius: 5px;
         width: 100%;
         margin-top: 10px;
+        font-weight: 600;
     }
-    .combine-popup .generate-button:hover {
-        background-color: #3ba888;
+    .combine-popup .generate-button:hover { background-color: #3ba888; }
+    .combine-popup input[type="text"] {
+        width: 88%;
+        padding: 7px 10px;
+        background: #0d1526;
+        border: 1px solid #4ecca3;
+        color: white;
+        border-radius: 4px;
+        font-size: 14px;
     }
 </style>
-
-
 </head>
 <body>
-    {% set current_date = None %}
+    <a class="back-link" href="/">← Back to commands</a>
+    <div class="page-title">{{ command }}</div>
+
+    {% set has_files = namespace(value=false) %}
     {% for item in command_files %}
-        {% if item.endswith('.cast') %}
-            <div class="file-name" id="file-{{ loop.index }}" onclick="toggleDisplay('{{ item }}', event)">
-                <span id="name-{{ item }}" class="file-text">{{ item.split('.cast')[0] }}</span>
-                <i class="edit-icon" onclick="enableEdit('{{ item }}', event)">🖊️</i>
-                <i class="save-btn" onclick="confirmSave('{{ item }}', event)" style="visibility: hidden;">&#10004;</i>
-                <i class="exit-btn" onclick="exitEditMode('{{ item }}', event)" style="visibility: hidden;">&#10006;</i>
-                {% if item in favorites %}
-                    <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9733;</span>
-                {% else %}
-                    <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9734;</span>
-                {% endif %}
-            </div>
-            <div id="demo-{{ item }}" class="dropdown-content">
-                <div class="redact-controls">
-                    <input type="text" id="redact-word-{{ item }}" placeholder="Word to Redact">
-                    <button onclick="redactAndReload('{{ item }}')">Redact and Reload</button>
-                </div>
-                <div class="delete-controls">
-                    <button class="delete-button" onclick="deleteFile('{{ item }}')">Delete File</button>
-                </div>
-            </div>
-        {% else %}
-            <div class="file-date">{{ item }}</div>
-        {% endif %}
+        {% if item.endswith('.cast') %}{% set has_files.value = true %}{% endif %}
     {% endfor %}
+
+    {% if not has_files.value %}
+        <div class="empty-state">
+            <div class="icon">🎬</div>
+            <h2>No recordings here</h2>
+            <p>No recordings found for <strong>{{ command }}</strong>. Run some commands while Patronus is active and they'll appear here.</p>
+        </div>
+    {% else %}
+        {% for item in command_files %}
+            {% if item.endswith('.cast') %}
+                <div class="file-name" id="file-{{ loop.index }}" onclick="toggleDisplay('{{ item }}', event)">
+                    <span id="name-{{ item }}" class="file-text">{{ item.split('.cast')[0] }}</span>
+                    <i class="edit-icon" onclick="enableEdit('{{ item }}', event)">🖊️</i>
+                    <i class="save-btn" onclick="confirmSave('{{ item }}', event)" style="visibility: hidden;">&#10004;</i>
+                    <i class="exit-btn" onclick="exitEditMode('{{ item }}', event)" style="visibility: hidden;">&#10006;</i>
+                    {% if item in favorites %}
+                        <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9733;</span>
+                    {% else %}
+                        <span class="favorite" onclick="toggleFavorite('{{ item }}', event)">&#9734;</span>
+                    {% endif %}
+                </div>
+                <div id="demo-{{ item }}" class="dropdown-content">
+                    <div class="redact-controls">
+                        <input type="text" id="redact-word-{{ item }}" placeholder="Word to redact…">
+                        <button onclick="redactAndReload('{{ item }}')">Redact &amp; Reload</button>
+                    </div>
+                    <div class="delete-controls">
+                        <button class="delete-button" onclick="deleteFile('{{ item }}')">🗑 Delete</button>
+                    </div>
+                </div>
+            {% else %}
+                <div class="file-date">{{ item }}</div>
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+
     {% if command == "Favorites" %}
-        <a class="combine-button" onclick="openCombinePopup()">Combine Favorites</a>
+        <button class="combine-button" onclick="openCombinePopup()">⚡ Combine Favorites</button>
+        <div class="modal-overlay" id="modalOverlay" onclick="closeCombinePopup()"></div>
         <div class="combine-popups-container" id="combinePopupsContainer">
             <div class="combine-popup" id="combinePopupLeft">
-                <h3>Combine Favorites</h3>
+                <h3>Favorites (drag to right to include)</h3>
                 <div id="draggableContainerLeft"></div>
             </div>
             <div class="combine-popup" id="combinePopupRight">
+                <h3>Combine order</h3>
                 <div id="draggableContainerRight"></div>
-                <div style="display: flex; align-items: center;">
-                    <input type="text" id="newFileNameRight" placeholder="New File Name" style="width: 90%;">
-                    <span style="margin-left: 5px;">.cast</span>
+                <div style="display:flex;align-items:center;margin-top:10px;">
+                    <input type="text" id="newFileNameRight" placeholder="New file name">
+                    <span style="margin-left:5px;color:#aaa;">.cast</span>
                 </div>
-                <button class="generate-button" onclick="generateCombinedFile()">Generate</button>
-
+                <button class="generate-button" onclick="generateCombinedFile()">Generate Combined File</button>
             </div>
         </div>
     {% endif %}
+
     <script src="{{ url_for('static', filename='asciinema-player.min.js') }}"></script>
     <script>
-        function toggleDisplay(filename) {
+        function toggleDisplay(filename, event) {
+            if (event && event.target.closest('.edit-icon, .save-btn, .exit-btn, .favorite')) return;
             var player = document.getElementById('demo-' + filename);
             if (player.style.display === 'block') {
                 player.style.display = 'none';
             } else {
-                var allPlayers = document.getElementsByClassName('dropdown-content');
-                for (var i = 0; i < allPlayers.length; i++) {
-                    allPlayers[i].style.display = 'none';
-                }
+                document.querySelectorAll('.dropdown-content').forEach(p => p.style.display = 'none');
                 player.style.display = 'block';
-                
-                var timestamp = new Date().getTime();
-                
-                AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, player);
+                AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + new Date().getTime(), player);
             }
         }
 
@@ -746,309 +861,157 @@ COMMAND_TEMPLATE = '''
                 }
             }
         };
-    
 
         function openCombinePopup() {
-            const popupsContainer = document.getElementById('combinePopupsContainer');
-            if (popupsContainer.style.display === 'block') {
-                popupsContainer.style.display = 'none';
-            } else {
-                popupsContainer.style.display = 'flex';  
-                initializePopups(); 
-            }
+            document.getElementById('modalOverlay').classList.add('active');
+            document.getElementById('combinePopupsContainer').classList.add('active');
+            initializePopups();
+        }
+
+        function closeCombinePopup() {
+            document.getElementById('modalOverlay').classList.remove('active');
+            document.getElementById('combinePopupsContainer').classList.remove('active');
         }
 
         function initializePopups() {
-            const draggableContainerLeft = document.getElementById('draggableContainerLeft');
-            draggableContainerLeft.innerHTML = '';
-
-            const favoriteFiles = {{ favorites|tojson }};
-            favoriteFiles.forEach(function(file) {
+            const left = document.getElementById('draggableContainerLeft');
+            const right = document.getElementById('draggableContainerRight');
+            left.innerHTML = '';
+            right.innerHTML = '';
+            const favorites = {{ favorites | tojson }};
+            Object.keys(favorites).forEach(file => {
                 const item = document.createElement('div');
-                item.classList.add('item');
-                item.textContent = file;
-
-                const cloneBtn = document.createElement('span');
-                cloneBtn.classList.add('clone-btn');
-                cloneBtn.innerHTML = '&#x2b;';
-                cloneBtn.onclick = function() {
-                    cloneItem(item.textContent);
-                };
-
-                item.appendChild(cloneBtn);
-                draggableContainerLeft.appendChild(item);
+                item.className = 'item';
+                item.draggable = true;
+                item.textContent = file.replace('.cast', '');
+                item.dataset.file = file;
+                item.innerHTML += '<span class="clone-btn" onclick="cloneItem(this)">+</span>';
+                addDragListeners(item);
+                left.appendChild(item);
             });
-        }
-
-
-        function cloneItem(fileName) {
-            const draggableContainerRight = document.getElementById('draggableContainerRight');
-            const item = document.createElement('div');
-            item.classList.add('item');
-
-            const fileNameSpan = document.createElement('span');
-            fileNameSpan.classList.add('item-text');
-            
-            fileNameSpan.textContent = fileName.replace(/\+$/, '');  
-            item.appendChild(fileNameSpan);
-
-            
-            const cloneBtn = document.createElement('span');
-            cloneBtn.classList.add('clone-btn');
-            cloneBtn.style.color = '#00FF00';
-            cloneBtn.onclick = function() {
-                cloneItem(fileName.replace(/\+$/, '')); 
-            };
-            item.appendChild(cloneBtn);
-
-            const removeBtn = document.createElement('span');
-            removeBtn.classList.add('remove-btn');
-            removeBtn.textContent = '×';
-            removeBtn.style.color = '#FF0000';
-            removeBtn.onclick = function() {
-                this.parentElement.remove();
-            };
-            item.appendChild(removeBtn);
-
-            draggableContainerRight.appendChild(item);
-            makeItemsDraggable();
-        }
-
-
-
-
-
-
-        function makeItemsDraggable() {
-            const container = document.getElementById('draggableContainerRight');
-            const items = container.getElementsByClassName('item');
-
-            let dragSrcEl = null;
-
-            function handleDragStart(e) {
-                this.style.opacity = '0.4';
-                dragSrcEl = this;
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/html', this.innerHTML);
-            }
-
-            function handleDragEnd(e) {
-                this.style.opacity = '1';
-                Array.from(items).forEach(function(item) {
-                    item.classList.remove('over');
-                });
-            }
-
-            function handleDragOver(e) {
-                if (e.preventDefault) {
+            [left, right].forEach(container => {
+                container.addEventListener('dragover', e => e.preventDefault());
+                container.addEventListener('drop', e => {
                     e.preventDefault();
-                }
-                return false;
-            }
-
-            function handleDragEnter(e) {
-                this.classList.add('over');
-            }
-
-            function handleDragLeave(e) {
-                this.classList.remove('over');
-            }
-
-            function handleDrop(e) {
-                if (e.stopPropagation) {
-                    e.stopPropagation();
-                }
-
-                if (dragSrcEl !== this) {
-                    dragSrcEl.innerHTML = this.innerHTML;
-                    this.innerHTML = e.dataTransfer.getData('text/html');
-                }
-                return false;
-            }
-
-            Array.from(items).forEach(function(item) {
-                item.addEventListener('dragstart', handleDragStart, false);
-                item.addEventListener('dragend', handleDragEnd, false);
-                item.addEventListener('dragover', handleDragOver, false);
-                item.addEventListener('dragenter', handleDragEnter, false);
-                item.addEventListener('dragleave', handleDragLeave, false);
-                item.addEventListener('drop', handleDrop, false);
+                    const dragged = document.querySelector('.dragging');
+                    if (dragged) container.appendChild(dragged);
+                });
             });
         }
 
+        function addDragListeners(item) {
+            item.addEventListener('dragstart', () => item.classList.add('dragging'));
+            item.addEventListener('dragend', () => item.classList.remove('dragging'));
+        }
+
+        function cloneItem(btn) {
+            const original = btn.parentElement;
+            const clone = original.cloneNode(true);
+            clone.querySelector('.clone-btn').onclick = function() { cloneItem(this); };
+            addDragListeners(clone);
+            original.parentElement.appendChild(clone);
+        }
 
         function generateCombinedFile() {
-            const container = document.getElementById('draggableContainerRight');
-            const items = container.getElementsByClassName('item');
-            const fileOrder = Array.from(items).map(item => item.getElementsByClassName('item-text')[0].textContent.replace(/\+$/, '').trim());
-
-            let newFileName = document.getElementById('newFileNameRight').value.trim();
-            if (!newFileName.endsWith('.cast')) {
-                newFileName += '.cast';
-            }
-
+            const right = document.getElementById('draggableContainerRight');
+            const files = Array.from(right.querySelectorAll('.item')).map(i => i.dataset.file);
+            const newName = document.getElementById('newFileNameRight').value.trim();
+            if (!newName) { alert('Please enter a file name.'); return; }
+            if (!files.length) { alert('Add at least one recording to combine.'); return; }
             fetch('/combine_files', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ files: fileOrder, new_file_name: newFileName })
-            }).then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Files combined successfully!');
-                    location.reload();
-                } else {
-                    alert('Failed to combine files.');
-                }
-            }).catch(error => {
-                console.error('Error:', error);
-                alert('Error combining files.');
-            });
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files, new_file_name: newName })
+            }).then(r => r.json()).then(data => {
+                if (data.success) { closeCombinePopup(); window.location.reload(); }
+                else alert('Failed to combine files.');
+            }).catch(err => { console.error(err); alert('Error combining files.'); });
         }
 
-
-        
         function enableEdit(file, event) {
             event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
+            var parentDiv = nameSpan.closest('.file-name');
             nameSpan.contentEditable = true;
             nameSpan.focus();
-
-            nameSpan.onclick = function(event) {
-                event.stopPropagation();  
-            };
-
-            var fileDiv = nameSpan.closest('.file-name');
-            fileDiv.querySelector('.edit-icon').style.visibility = 'hidden';
-            fileDiv.querySelector('.save-btn').style.visibility = 'visible';
-            fileDiv.querySelector('.exit-btn').style.visibility = 'visible';
+            parentDiv.querySelector('.edit-icon').style.visibility = 'hidden';
+            parentDiv.querySelector('.save-btn').style.visibility = 'visible';
+            parentDiv.querySelector('.exit-btn').style.visibility = 'visible';
         }
-
-
 
         function confirmSave(file, event) {
-            event.stopPropagation(); 
-            if (confirm("Are you sure you want to save the changes?")) {
-                saveEdit(file, event);
-            }
-        }
-
-        function saveEdit(file, event) {
             event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
-            var newName = nameSpan.textContent.trim();
-
+            var newName = nameSpan.textContent.trim() + '.cast';
             fetch('/edit', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({old_file: file, new_file: newName + '.cast'})
-            }).then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    nameSpan.contentEditable = false;
-                    alert('File name updated successfully!');
-
-                    var fileDiv = nameSpan.closest('.file-name');
-                    fileDiv.querySelector('.edit-icon').style.visibility = 'visible';
-                    fileDiv.querySelector('.save-btn').style.visibility = 'hidden';
-                    fileDiv.querySelector('.exit-btn').style.visibility = 'hidden';
-                } else {
-                    alert('Failed to edit the file name.');
-                }
-            }).catch(error => {
-                console.error('Error:', error);
-                alert('Error saving the file name: ' + error.message);
-            });
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_file: file, new_file: newName })
+            }).then(r => r.json()).then(data => {
+                if (data.success) window.location.reload();
+                else alert('Failed to rename.');
+            }).catch(err => { console.error(err); alert('Error: ' + err.message); });
         }
-
 
         function exitEditMode(file, event) {
             event.stopPropagation();
             var nameSpan = document.getElementById('name-' + file);
             nameSpan.contentEditable = false;
             var parentDiv = nameSpan.closest('.file-name');
-            var editIcon = parentDiv.querySelector('.edit-icon');
-            var saveIcon = parentDiv.querySelector('.save-btn');
-            var exitIcon = parentDiv.querySelector('.exit-btn'); 
-            editIcon.style.visibility = 'visible'; 
-            saveIcon.style.visibility = 'hidden';
-            exitIcon.style.visibility = 'hidden'; 
+            parentDiv.querySelector('.edit-icon').style.visibility = 'visible';
+            parentDiv.querySelector('.save-btn').style.visibility = 'hidden';
+            parentDiv.querySelector('.exit-btn').style.visibility = 'hidden';
             nameSpan.textContent = file.split('.cast')[0];
         }
 
-        function toggleFavorite(file) {
+        function toggleFavorite(file, event) {
             event.stopPropagation();
             fetch('/toggle_favorite', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({file: file})
-            }).then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    window.location.reload();
-                } else {
-                    console.error('Failed to toggle favorite status');
-                }
-            }).catch(error => {
-                console.error('Error:', error);
-            });
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file })
+            }).then(r => r.json()).then(data => {
+                if (data.success) window.location.reload();
+            }).catch(err => console.error(err));
         }
 
         function redactAndReload(filename) {
-            var wordInput = document.getElementById('redact-word-' + filename);
-            var word = wordInput.value;
+            var word = document.getElementById('redact-word-' + filename).value;
+            if (!word) { alert('Enter a word to redact first.'); return; }
             fetch('/redact', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({word: word, file: filename})
-            }).then(response => response.json())
-            .then(data => {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ word, file: filename })
+            }).then(r => r.json()).then(data => {
                 if (data.success) {
-                    var timestamp = new Date().getTime();
+                    var ts = new Date().getTime();
                     var playerContainer = document.getElementById('demo-' + filename);
-                    playerContainer.innerHTML = ''; 
-                    wordInput.value = '';
-
+                    playerContainer.innerHTML = '';
+                    document.getElementById('redact-word-' + filename).value = '';
                     setTimeout(() => {
                         playerContainer.style.display = 'block';
-                        AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + timestamp, playerContainer);
+                        AsciinemaPlayer.create('/static/splits/' + filename + '?_=' + ts, playerContainer);
                     }, 1000);
                 }
-            }).catch(error => {
-                console.error('Error:', error);
-            });
+            }).catch(err => console.error(err));
         }
 
-    
         function deleteFile(filename) {
-            if (confirm('Are you sure you want to delete this file?')) {
+            if (confirm('Delete ' + filename.split('.cast')[0] + '? This cannot be undone.')) {
                 fetch('/delete', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({file: filename})
-                }).then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        window.location.reload();
-                    } else {
-                        alert('Failed to delete the file.');
-                    }
-                }).catch(error => {
-                    console.error('Error:', error);
-                    alert('Error deleting the file.');
-                });
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file: filename })
+                }).then(r => r.json()).then(data => {
+                    if (data.success) window.location.reload();
+                    else alert('Failed to delete.');
+                }).catch(err => { console.error(err); alert('Error deleting.'); });
             }
         }
     </script>
 </body>
 </html>
 '''
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8005, debug=False)
